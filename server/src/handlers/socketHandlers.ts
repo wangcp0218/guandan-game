@@ -70,14 +70,15 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    socket.on('create_room', (data: { name: string; password?: string }) => {
+    socket.on('create_room', (data: { name: string; password?: string; aiCount?: number }) => {
       if (!socket.userId) {
         socket.emit('error', { message: '请先登录' });
         return;
       }
-      const room = roomManager.createRoom(data.name, data.password || '');
+      const room = roomManager.createRoom(data.name, data.password || '', data.aiCount || 0);
       socket.emit('room_created', room.toRoomInfo());
       socket.emit('room_list', roomManager.getRoomList());
+      room.fillWithAI();
     });
 
     socket.on('join_room', (data: { roomId: string; password?: string }) => {
@@ -111,6 +112,8 @@ export function setupSocketHandlers(io: Server) {
         playerName: socket.username,
         seatIndex: idx,
       });
+
+      room.fillWithAI();
 
       if (room.canStart()) {
         room.startGame();

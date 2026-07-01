@@ -80,6 +80,7 @@ export interface RoomInfo {
   maxPlayers: number;
   level: number;
   hasPassword: boolean;
+  aiCount: number;
 }
 
 export interface GameState {

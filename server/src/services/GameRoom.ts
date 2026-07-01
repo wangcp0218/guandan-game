@@ -7,7 +7,7 @@ import { createDeck, shuffleDeck, dealCards, sortCards, isJoker } from '../engin
 import { identifyPattern, isValidPlay } from '../engine/patterns';
 import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
 import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectReturnTributeCard } from '../engine/rules';
-import { findBestPlay, findBestTribute } from '../engine/ai';
+import { findBestPlay, findBestTribute, findSmartPlay } from '../engine/ai';
 
 const MAX_PLAYERS = 4;
 const TURN_TIMEOUT = 30000;
@@ -23,11 +23,13 @@ export class GameRoom {
   currentLevel: number = Rank.Two;
   turnTimer: ReturnType<typeof setTimeout> | null = null;
   roundNumber: number = 0;
+  aiCount: number = 0;
 
-  constructor(name: string, password: string = '') {
+  constructor(name: string, password: string = '', aiCount: number = 0) {
     this.id = uuidv4();
     this.name = name;
     this.password = password;
+    this.aiCount = aiCount;
   }
 
   addPlayer(id: string, name: string, level: number, socket: any, isAI: boolean = false): number {
@@ -47,6 +49,16 @@ export class GameRoom {
 
   canStart(): boolean {
     return this.players.length === MAX_PLAYERS;
+  }
+
+  fillWithAI() {
+    const needed = MAX_PLAYERS - this.players.length;
+    const aiNames = ['AI小明', 'AI小红', 'AI小刚', 'AI小亮'];
+    for (let i = 0; i < Math.min(needed, this.aiCount); i++) {
+      const aiId = `ai_${this.id}_${i}`;
+      this.addPlayer(aiId, aiNames[i] || `AI${i+1}`, this.currentLevel, null, true);
+    }
+    this.aiCount = 0;
   }
 
   startGame() {
@@ -254,14 +266,14 @@ export class GameRoom {
     this.startGame();
   }
 
-  private aiPlay() {
+  private async aiPlay() {
     if (!this.state) return;
     const playerIdx = this.state.currentPlayerIndex;
     const player = this.players[playerIdx];
     const hand = this.hands.get(player.id) || [];
 
     const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
-    const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
+    const pattern = await findSmartPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
 
     if (pattern) {
       this.playCards(player.id, pattern.cards);
@@ -321,10 +333,11 @@ export class GameRoom {
     return {
       id: this.id,
       name: this.name,
-      playerCount: this.players.length,
+      playerCount: this.players.filter(p => !p.isAI).length,
       maxPlayers: MAX_PLAYERS,
       level: this.currentLevel,
       hasPassword: !!this.password,
+      aiCount: this.aiCount + this.players.filter(p => p.isAI).length,
     };
   }
 }

@@ -12,6 +12,7 @@ export default function Lobby() {
   const [roomPass, setRoomPass] = useState('');
   const [joinPass, setJoinPass] = useState('');
   const [info, setInfo] = useState('');
+  const [aiCount, setAiCount] = useState(0);
   const navigate = useNavigate();
   const { username, isLoggedIn, token } = useAuthStore();
 
@@ -63,7 +64,7 @@ export default function Lobby() {
       return;
     }
     const socket = getSocket();
-    socket?.emit('create_room', { name: roomName, password: roomPass });
+    socket?.emit('create_room', { name: roomName, password: roomPass, aiCount });
   };
 
   const joinRoom = (roomId: string) => {
@@ -118,6 +119,28 @@ export default function Lobby() {
                   onChange={(e) => setRoomPass(e.target.value)}
                   style={styles.input}
                 />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap' }}>AI对手:</span>
+                  {[0, 1, 2, 3].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setAiCount(n)}
+                      style={{
+                        flex: 1,
+                        padding: '6px 4px',
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: aiCount === n ? '#e6b422' : 'rgba(255,255,255,0.1)',
+                        color: aiCount === n ? '#333' : 'rgba(255,255,255,0.5)',
+                        fontWeight: aiCount === n ? 700 : 400,
+                      }}
+                    >
+                      {n}个
+                    </button>
+                  ))}
+                </div>
                 {info && <p style={styles.error}>{info}</p>}
                 <div style={styles.modalBtns}>
                   <button className="btn-primary" onClick={createRoom}>创建</button>
@@ -158,7 +181,7 @@ export default function Lobby() {
                 <div style={styles.roomInfo}>
                   <span style={styles.roomName}>{room.name}</span>
                   <span style={styles.roomMeta}>
-                    {room.hasPassword ? '🔒 ' : ''}等级{room.level} | {room.playerCount}/{room.maxPlayers}人
+                    {room.hasPassword ? '🔒 ' : ''}等级{room.level} | {room.playerCount}人/{room.maxPlayers}人{room.aiCount > 0 ? ` | AIx${room.aiCount}` : ''}
                   </span>
                 </div>
                 <button

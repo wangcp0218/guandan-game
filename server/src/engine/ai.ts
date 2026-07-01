@@ -6,6 +6,7 @@ import {
   isTriplePair,
 } from './patterns';
 import { canBeat, isBombPattern } from './compare';
+import { llmFindBestPlay } from './llmAi';
 
 function getRankCounts(hand: Card[]): Map<number, Card[]> {
   const map = new Map<number, Card[]>();
@@ -223,6 +224,15 @@ export function findBestTribute(hand: Card[], currentLevel: number): Card {
   }
 
   return best;
+}
+
+export async function findSmartPlay(
+  hand: Card[],
+  lastPattern: CardPattern | null,
+  isFreePlay: boolean,
+  currentLevel: number
+): Promise<CardPattern | null> {
+  return llmFindBestPlay(hand, lastPattern, isFreePlay, currentLevel);
 }
 
 export function findBestReturnTribute(hand: Card[]): Card {

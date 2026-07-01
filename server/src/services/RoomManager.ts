@@ -4,8 +4,8 @@ import { RoomInfo } from '../../../shared/types';
 export class RoomManager {
   private rooms: Map<string, GameRoom> = new Map();
 
-  createRoom(name: string, password: string = ''): GameRoom {
-    const room = new GameRoom(name, password);
+  createRoom(name: string, password: string = '', aiCount: number = 0): GameRoom {
+    const room = new GameRoom(name, password, aiCount);
     this.rooms.set(room.id, room);
     return room;
   }
