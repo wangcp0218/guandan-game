@@ -99,6 +99,14 @@ export default function GameRoom() {
     };
     socket.on('player_joined', onPlayerJoined);
 
+    const onHintResult = (data: { cards: Card[] }) => {
+      clearSelection();
+      for (const c of data.cards) {
+        toggleCardSelection(c.id);
+      }
+    };
+    socket.on('hint_result', onHintResult);
+
     return () => {
       socket.off('game_state', onGameState);
       socket.off('game_started', onGameStarted);
@@ -110,6 +118,7 @@ export default function GameRoom() {
       socket.off('chat', onChat);
       socket.off('error', onError);
       socket.off('player_joined', onPlayerJoined);
+      socket.off('hint_result', onHintResult);
     };
   }, [roomId]);
 
@@ -260,6 +269,21 @@ export default function GameRoom() {
                 }}
               >
                 出牌 ({selectedCardIds.size}张)
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={() => { getSocket()?.emit('hint'); }}
+                disabled={!isMyTurn}
+                style={{
+                  opacity: isMyTurn ? 1 : 0.3,
+                  padding: '8px 16px',
+                  fontSize: 14,
+                  background: 'rgba(230,180,34,0.2)',
+                  color: '#e6b422',
+                  border: '1px solid rgba(230,180,34,0.4)',
+                }}
+              >
+                提示
               </button>
               <button
                 className="btn-secondary"

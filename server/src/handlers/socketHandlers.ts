@@ -92,7 +92,11 @@ export function setupSocketHandlers(io: Server) {
           const user = findUserById(socket.userId);
           const idx = currentRoom.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
           socket.emit('room_joined', { room: currentRoom.toRoomInfo(), seatIndex: idx });
-          currentRoom.syncWaitingState();
+          if (!currentRoom.state || currentRoom.state.phase === 'waiting') {
+            currentRoom.syncWaitingState();
+          } else {
+            currentRoom.broadcastState();
+          }
         }
         return;
       }
@@ -146,6 +150,14 @@ export function setupSocketHandlers(io: Server) {
 
     socket.on('room_list', () => {
       socket.emit('room_list', roomManager.getRoomList());
+    });
+
+    socket.on('hint', () => {
+      if (!socket.userId || !socket.currentRoomId) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      const cards = room.getHintCards(socket.userId);
+      socket.emit('hint_result', { cards });
     });
 
     socket.on('play_cards', (data: { cards: any[] }) => {

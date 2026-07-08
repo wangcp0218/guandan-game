@@ -102,6 +102,17 @@ export class GameRoom {
     }
   }
 
+  getHintCards(playerId: string): Card[] {
+    if (!this.state || this.state.phase !== GamePhase.Playing) return [];
+    const playerIdx = this.players.findIndex(p => p.id === playerId);
+    if (playerIdx !== this.state.currentPlayerIndex) return [];
+    const hand = this.hands.get(playerId) || [];
+    const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
+    const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
+    if (!pattern) return [];
+    return pattern.cards;
+  }
+
   startGame() {
     this.roundNumber++;
     const deck = shuffleDeck(createDeck());
@@ -111,10 +122,10 @@ export class GameRoom {
 
     for (let i = 0; i < MAX_PLAYERS; i++) {
       const player = this.players[i];
-      this.hands.set(player.id, sortCards(dealt[i], this.currentLevel));
+      const sorted = sortCards(dealt[i], this.currentLevel);
+      this.hands.set(player.id, sorted);
+      console.log(`[startGame] dealt to ${player.name}(seat=${i} id=${player.id}): ${sorted.length} cards`);
     }
-
-    const levels = this.players.map(p => ({ playerId: p.id, level: p.level }));
 
     this.state = {
       roomId: this.id,
@@ -188,11 +199,21 @@ export class GameRoom {
     if (this.turnTimer) clearTimeout(this.turnTimer);
 
     const currentPlayer = this.players[this.state.currentPlayerIndex];
+    console.log(`[startTurn] player=${currentPlayer.name} seat=${this.state.currentPlayerIndex} isAI=${currentPlayer.isAI} lastPlay=${!!this.state.lastPlay}`);
     if (currentPlayer.isAI) {
-      this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
-      setTimeout(() => this.aiPlay(), 500);
+      this.turnTimer = setTimeout(() => {
+        console.log(`[handleTimeout] AI timeout at seat ${this.state?.currentPlayerIndex}`);
+        this.handleTimeout();
+      }, TURN_TIMEOUT);
+      setTimeout(() => {
+        console.log(`[aiPlay] triggering for seat ${this.state?.currentPlayerIndex}`);
+        this.aiPlay();
+      }, 500);
     } else {
-      this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
+      this.turnTimer = setTimeout(() => {
+        console.log(`[handleTimeout] human timeout at seat ${this.state?.currentPlayerIndex}`);
+        this.handleTimeout();
+      }, TURN_TIMEOUT);
     }
   }
 
@@ -209,6 +230,7 @@ export class GameRoom {
     if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
 
     const hand = this.hands.get(playerId) || [];
+    console.log(`[playCards] checking: playerIdx=${playerIdx} handSize=${hand.length} cardsInPlay=${cards.length}`);
     if (cards.length === 0) {
       return this.handlePass(playerId);
     }
@@ -249,6 +271,7 @@ export class GameRoom {
       pattern,
     });
     this.emitHandToPlayer(playerId);
+    console.log(`[playCards] player=${this.players[playerIdx].name} played pattern=${pattern?.type} remaining=${hand.length}`);
 
     if (hand.length === 0) {
       const rank = this.rankings.length + 1;
@@ -359,17 +382,22 @@ export class GameRoom {
     const playerIdx = this.state.currentPlayerIndex;
     const player = this.players[playerIdx];
     const hand = this.hands.get(player.id) || [];
+    console.log(`[aiPlay] player=${player.name} hand=${hand.length} cards`);
 
     const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
     const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
+    console.log(`[aiPlay] findBestPlay returned pattern=${pattern?.type || 'null'} cards=${pattern?.cards.length || 0}`);
 
     if (pattern) {
+      console.log(`[aiPlay] playing ${pattern.type} with ${pattern.cards.length} cards`);
       this.playCards(player.id, pattern.cards);
     } else {
+      console.log(`[aiPlay] no pattern, lastPlay=${!!this.state.lastPlay}`);
       if (this.state.lastPlay) {
         this.handlePass(player.id);
       } else {
         const singles = hand.map(c => [c]).filter(p => identifyPattern(p, this.state!.currentLevel));
+        console.log(`[aiPlay] free play singles found=${singles.length}`);
         if (singles.length > 0) {
           this.playCards(player.id, singles[0]);
         }
@@ -400,7 +428,7 @@ export class GameRoom {
     }
   }
 
-  private broadcastState() {
+  broadcastState() {
     if (!this.state) return;
     this.emitToAll('game_state', this.state);
   }
@@ -428,9 +456,11 @@ export class GameRoom {
   private emitHandToPlayer(playerId: string) {
     const player = this.players.find(p => p.id === playerId);
     if (!player || player.isAI || !player.socket) return;
+    const hand = this.getHand(playerId);
+    console.log(`[emitHandToPlayer] player=${player.name} id=${playerId} cards=${hand.length}`);
     try {
-      player.socket.emit('your_cards', this.getHand(playerId));
-    } catch (e) {}
+      player.socket.emit('your_cards', hand);
+    } catch (e) { console.error('emit your_cards failed:', e); }
   }
 
   toRoomInfo() {
