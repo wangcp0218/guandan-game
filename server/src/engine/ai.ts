@@ -232,7 +232,14 @@ export async function findSmartPlay(
   isFreePlay: boolean,
   currentLevel: number
 ): Promise<CardPattern | null> {
-  return llmFindBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+  const ruleResult = findBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+
+  try {
+    const llmResult = await llmFindBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+    if (llmResult) return llmResult;
+  } catch {}
+
+  return ruleResult;
 }
 
 export function findBestReturnTribute(hand: Card[]): Card {

@@ -2,11 +2,10 @@ import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/type
 import { cardDisplayName, sortCards, effectiveRank } from './card';
 import { identifyPattern } from './patterns';
 import { canBeat, canFreePlay } from './compare';
-import { findBestPlay } from './ai';
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
-const LLM_TIMEOUT = 5000;
+const LLM_TIMEOUT = 2000;
 
 function describeHand(cards: Card[], currentLevel: number): string {
   const sorted = sortCards(cards, currentLevel);
@@ -47,34 +46,17 @@ export async function llmDecidePlay(
     const handJson = JSON.stringify(handCards);
     const lastDesc = describePattern(lastPattern);
 
-    const systemPrompt = `你是掼蛋（淮安掼蛋）游戏的AI玩家。你需要从手牌中选择要出的牌。
+    const systemPrompt = `你是掼蛋AI玩家。牌的大小：大王>小王>级牌(${currentLevel})>A>K>Q>J>10>9>8>7>6>5>4>3>2。
+牌型：单张、对子、三不带、三带二、顺子(≥5连)、连对(≥3连对)、钢板(≥2连三)、炸弹(4-8同点)。
+出牌规则：跟牌必须同类型同长度更大，或出炸弹。牌型不对或不够大就要"不出"。
+牌型强度：天王炸(4王)>普通炸弹(张多>张少，同张比点)>同花顺>普通牌型。`;
 
-游戏规则：
-- 当前级牌是${currentLevel}级，级牌的大小仅次于大小王
-- 牌的大小顺序：大王 > 小王 > 级牌(${currentLevel}) > A > K > Q > J > 10 > 9 > 8 > 7 > 6 > 5 > 4 > 3 > 2(非级牌时)
-- 可以出的牌型：单张、对子、三不带、三带二、顺子(5张及以上连续，不含2和王)、连对(3对及以上连续)、钢板/飞机(2个及以上连续三张)、炸弹(4-8张同点数)
-- 天王炸(4张王) > 同花顺 > 普通炸弹(张数多的大，张数相同比点数)
-- 必须出比上家大的同类型相同长度的牌，或者炸弹
-- 如果上家出了非炸弹牌型，你必须出同类型同长度的更大牌，或者出炸弹
-- 自由出牌时可以出任意牌型
-- 每人27张牌，出完即获胜`;
+    const userMessage = `级牌:${currentLevel}级 手牌:${handDesc}
+手牌JSON:${handJson}
+上家出牌:${lastDesc}
+${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
 
-    const userMessage = `当前局面：
-- 当前级牌等级: ${currentLevel}
-- 你的手牌: ${handDesc}
-- 你的手牌JSON(含id): ${handJson}
-- 上家出的牌: ${lastDesc}
-- 是否自由出牌: ${isFreePlay ? '是' : '否'}
-- ${isFreePlay ? '你可以自由选择出什么牌' : lastPattern ? '你必须出比上家大的牌或炸弹' : '你必须出任意牌'}
-
-请从手牌中选择要出的牌，返回JSON格式：
-{
-  "card_ids": [1, 2, 3],  // 要出的牌的id列表，如果选择"不出"则返回空数组[]
-  "reason": "简要说明出牌理由"
-}
-
-如果确实没有能打过的牌，card_ids返回空数组[]（表示"不出"）。
-如果自由出牌，优先出小单张、小对子，保留炸弹和大牌。`;
+返回JSON:{"card_ids":[牌id列表],"reason":"理由"}。不出则card_ids:[]。自由出牌优先小单张/小对子。`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT);
@@ -147,5 +129,5 @@ export async function llmFindBestPlay(
     if (llmCards.length === 0) return null;
     return identifyPattern(llmCards, currentLevel);
   }
-  return findBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+  return null;
 }
