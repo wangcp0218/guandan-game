@@ -194,6 +194,7 @@ export default function GameRoom() {
               position="top"
               isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 2) % 4}
               isMe={getPlayerForPosition(2)!.id === userId}
+              isPartner={getPlayerForPosition(2)!.id !== userId}
             />
           )}
         </div>
@@ -206,6 +207,7 @@ export default function GameRoom() {
               position="left"
               isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 1) % 4}
               isMe={getPlayerForPosition(1)!.id === userId}
+              isPartner={false}
             />
           )}
         </div>
@@ -218,6 +220,7 @@ export default function GameRoom() {
               position="right"
               isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 3) % 4}
               isMe={getPlayerForPosition(3)!.id === userId}
+              isPartner={false}
             />
           )}
         </div>
