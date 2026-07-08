@@ -125,14 +125,16 @@ export function generateLegalPlays(
   allCombos.push(...generateBombs(rankCounts));
   allCombos.push(...generateStraights(hand));
 
+  const extra: Card[][] = [];
   for (const combo of allCombos) {
     if (isKingBomb(combo)) {
-      allCombos.push(combo);
+      extra.push(combo);
     }
     if (isFlushStraight(combo)) {
-      allCombos.push(combo);
+      extra.push(combo);
     }
   }
+  allCombos.push(...extra);
 
   const patterns: CardPattern[] = [];
   const seen = new Set<string>();

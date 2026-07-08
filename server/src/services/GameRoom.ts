@@ -361,22 +361,36 @@ export class GameRoom {
 
   private aiPlay() {
     if (!this.state) return;
-    const playerIdx = this.state.currentPlayerIndex;
-    const player = this.players[playerIdx];
-    const hand = this.hands.get(player.id) || [];
+    try {
+      const playerIdx = this.state.currentPlayerIndex;
+      const player = this.players[playerIdx];
+      const hand = this.hands.get(player.id) || [];
 
-    const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
-    const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
+      const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
+      const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
 
-    if (pattern) {
-      this.playCards(player.id, pattern.cards);
-    } else {
-      if (this.state.lastPlay) {
-        this.handlePass(player.id);
+      if (pattern) {
+        this.playCards(player.id, pattern.cards);
       } else {
-        const singles = hand.map(c => [c]).filter(p => identifyPattern(p, this.state!.currentLevel));
-        if (singles.length > 0) {
-          this.playCards(player.id, singles[0]);
+        if (this.state.lastPlay) {
+          this.handlePass(player.id);
+        } else {
+          const singles = hand.map(c => [c]).filter(p => identifyPattern(p, this.state!.currentLevel));
+          if (singles.length > 0) {
+            this.playCards(player.id, singles[0]);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('aiPlay error:', e);
+      // Fallback: just pass or force play smallest single
+      if (this.state && this.state.lastPlay) {
+        try { this.handlePass(this.players[this.state.currentPlayerIndex]?.id); } catch {}
+      } else if (this.state) {
+        const player = this.players[this.state.currentPlayerIndex];
+        const hand = this.hands.get(player?.id) || [];
+        if (hand.length > 0) {
+          try { this.playCards(player.id, [hand[0]]); } catch {}
         }
       }
     }
