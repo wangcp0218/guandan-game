@@ -33,18 +33,56 @@ export class GameRoom {
   }
 
   addPlayer(id: string, name: string, level: number, socket: any, isAI: boolean = false): number {
+    const existingIdx = this.players.findIndex(p => p.id === id);
+    if (existingIdx >= 0) {
+      const existing = this.players[existingIdx];
+      existing.name = name;
+      existing.level = level;
+      existing.socket = socket;
+      existing.isAI = isAI;
+      if (!this.state || this.state.phase === GamePhase.Waiting) {
+        this.syncWaitingState();
+      }
+      return existingIdx;
+    }
+
     if (this.players.length >= MAX_PLAYERS) return -1;
     const idx = this.players.length;
     this.players.push({ id, name, level, socket, isAI });
+    if (!this.state || this.state.phase === GamePhase.Waiting) {
+      this.syncWaitingState();
+    }
     return idx;
   }
 
   removePlayer(id: string) {
     this.players = this.players.filter(p => p.id !== id);
+    if (!this.state || this.state.phase === GamePhase.Waiting) {
+      this.syncWaitingState();
+    }
   }
 
   getPlayerCount(): number {
     return this.players.length;
+  }
+
+  getHumanPlayerCount(): number {
+    return this.players.filter(p => !p.isAI).length;
+  }
+
+  hasPlayer(id: string): boolean {
+    return this.players.some(p => p.id === id);
+  }
+
+  clearPlayers() {
+    this.players = [];
+    this.hands.clear();
+    this.rankings = [];
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
+    this.state = null;
   }
 
   canStart(): boolean {
@@ -59,6 +97,9 @@ export class GameRoom {
       this.addPlayer(aiId, aiNames[i] || `AI${i+1}`, this.currentLevel, null, true);
     }
     this.aiCount = 0;
+    if (!this.state || this.state.phase === GamePhase.Waiting) {
+      this.syncWaitingState();
+    }
   }
 
   startGame() {
@@ -99,7 +140,40 @@ export class GameRoom {
       roundNumber: this.roundNumber,
     };
 
+    this.emitHands();
     this.startPlayingPhase();
+  }
+
+  getHand(playerId: string): Card[] {
+    return [...(this.hands.get(playerId) || [])];
+  }
+
+  syncWaitingState() {
+    this.state = {
+      roomId: this.id,
+      phase: GamePhase.Waiting,
+      currentLevel: this.currentLevel,
+      players: this.players.map((p, i) => ({
+        id: p.id,
+        name: p.name,
+        level: p.level,
+        seatIndex: i,
+        cardCount: this.hands.get(p.id)?.length || 0,
+        isReady: p.isAI,
+        isOnline: true,
+      })),
+      currentPlayerIndex: 0,
+      lastPlay: null,
+      lastPlayPlayerIndex: -1,
+      passCount: 0,
+      tributeTo: null,
+      tributeCard: null,
+      returnTributeCards: null,
+      redHeartIndex: -1,
+      roundNumber: this.roundNumber,
+    };
+
+    this.broadcastState();
   }
 
   private startPlayingPhase() {
@@ -166,6 +240,12 @@ export class GameRoom {
     this.state.passCount = 0;
 
     this.updatePlayerCardCount();
+    this.broadcastEvent('player_played', {
+      playerId,
+      playerName: this.players[playerIdx].name,
+      pattern,
+    });
+    this.emitHandToPlayer(playerId);
 
     if (hand.length === 0) {
       const rank = this.rankings.length + 1;
@@ -327,6 +407,22 @@ export class GameRoom {
         try { p.socket.emit(event, data); } catch (e) {}
       }
     }
+  }
+
+  private emitHands() {
+    for (const p of this.players) {
+      if (!p.isAI) {
+        this.emitHandToPlayer(p.id);
+      }
+    }
+  }
+
+  private emitHandToPlayer(playerId: string) {
+    const player = this.players.find(p => p.id === playerId);
+    if (!player || player.isAI || !player.socket) return;
+    try {
+      player.socket.emit('your_cards', this.getHand(playerId));
+    } catch (e) {}
   }
 
   toRoomInfo() {

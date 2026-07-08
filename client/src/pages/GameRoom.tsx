@@ -19,11 +19,11 @@ const SEAT_POSITIONS = [
 export default function GameRoom() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
-  const { userId, username, isLoggedIn } = useAuthStore();
+  const { userId, isLoggedIn, logout } = useAuthStore();
   const {
     gameState, setGameState, mySeatIndex, setMySeatIndex,
     myCards, setMyCards, selectedCardIds, toggleCardSelection, clearSelection,
-    messages, addMessage, roundResult, setRoundResult,
+    messages, addMessage, roundResult, setRoundResult, reset,
   } = useGameStore();
 
   const [playHistory, setPlayHistory] = useState<{ playerId: string; playerName: string; pattern: any }[]>([]);
@@ -43,7 +43,7 @@ export default function GameRoom() {
 
     const onGameState = (state: GameState) => {
       setGameState(state);
-      setWaiting(false);
+      setWaiting(state.phase === 'waiting');
 
       const myPlayer = state.players.find(p => p.id === userId);
       if (myPlayer) {
@@ -54,7 +54,7 @@ export default function GameRoom() {
 
     const onGameStarted = (state: GameState) => {
       setGameState(state);
-      setWaiting(false);
+      setWaiting(state.phase === 'waiting');
     };
     socket.on('game_started', onGameStarted);
 
@@ -139,8 +139,6 @@ export default function GameRoom() {
     const socket = getSocket();
     socket?.emit('play_cards', { cards: selected });
     clearSelection();
-    // Remove played cards from local hand
-    setMyCards(myCards.filter(c => !selectedCardIds.has(c.id)));
   };
 
   const handlePass = () => {
@@ -154,11 +152,24 @@ export default function GameRoom() {
     socket?.emit('chat', { content });
   };
 
+  const handleLeaveRoom = () => {
+    getSocket()?.emit('leave_room');
+    reset();
+    navigate('/lobby');
+  };
+
+  const handleLogout = () => {
+    getSocket()?.emit('leave_room');
+    reset();
+    logout();
+    navigate('/');
+  };
+
   const isMyTurn = gameState?.currentPlayerIndex === mySeatIndex && gameState?.phase === 'playing';
   const currentLevel = gameState?.currentLevel || 2;
 
   const getPlayerForPosition = (posIdx: number): PlayerInfoType | null => {
-    if (!gameState) return null;
+    if (!gameState || mySeatIndex < 0) return null;
     const seatIdx = (mySeatIndex + posIdx) % 4;
     return gameState.players[seatIdx] || null;
   };
@@ -264,13 +275,17 @@ export default function GameRoom() {
               </button>
               <button
                 className="btn-danger"
-                onClick={() => {
-                  getSocket()?.emit('leave_room');
-                  navigate('/lobby');
-                }}
+                onClick={handleLeaveRoom}
                 style={{ padding: '8px 16px', fontSize: 12 }}
               >
-                退出
+                退出房间
+              </button>
+              <button
+                className="btn-secondary"
+                onClick={handleLogout}
+                style={{ padding: '8px 16px', fontSize: 12 }}
+              >
+                退出登录
               </button>
             </div>
           </div>

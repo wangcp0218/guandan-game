@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../stores/gameStore';
+import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { RoomInfo } from '../sharedTypes';
 
@@ -14,7 +14,8 @@ export default function Lobby() {
   const [info, setInfo] = useState('');
   const [aiCount, setAiCount] = useState(0);
   const navigate = useNavigate();
-  const { username, isLoggedIn, token } = useAuthStore();
+  const { username, isLoggedIn, token, logout } = useAuthStore();
+  const { reset } = useGameStore();
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -84,6 +85,12 @@ export default function Lobby() {
     getSocket()?.emit('room_list');
   };
 
+  const handleLogout = () => {
+    reset();
+    logout();
+    navigate('/');
+  };
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -91,7 +98,10 @@ export default function Lobby() {
           <h2 style={styles.logo}>🃏 掼蛋大厅</h2>
           <span style={styles.user}>欢迎, {username}</span>
         </div>
-        <button className="btn-secondary" onClick={refreshRooms}>刷新</button>
+        <div style={styles.headerActions}>
+          <button className="btn-secondary" onClick={refreshRooms}>刷新</button>
+          <button className="btn-danger" onClick={handleLogout}>退出登录</button>
+        </div>
       </header>
 
       <div style={styles.content}>
@@ -220,6 +230,11 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '16px 24px',
     background: 'rgba(0,0,0,0.15)',
     borderBottom: '1px solid rgba(255,255,255,0.1)',
+  },
+  headerActions: {
+    display: 'flex',
+    gap: 10,
+    alignItems: 'center',
   },
   logo: {
     fontSize: 22,

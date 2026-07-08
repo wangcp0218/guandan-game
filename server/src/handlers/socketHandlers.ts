@@ -78,7 +78,6 @@ export function setupSocketHandlers(io: Server) {
       const room = roomManager.createRoom(data.name, data.password || '', data.aiCount || 0);
       socket.emit('room_created', room.toRoomInfo());
       socket.emit('room_list', roomManager.getRoomList());
-      room.fillWithAI();
     });
 
     socket.on('join_room', (data: { roomId: string; password?: string }) => {
@@ -86,6 +85,22 @@ export function setupSocketHandlers(io: Server) {
         socket.emit('error', { message: '请先登录' });
         return;
       }
+
+      if (socket.currentRoomId === data.roomId) {
+        const currentRoom = roomManager.getRoom(data.roomId);
+        if (currentRoom) {
+          const user = findUserById(socket.userId);
+          const idx = currentRoom.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
+          socket.emit('room_joined', { room: currentRoom.toRoomInfo(), seatIndex: idx });
+          currentRoom.syncWaitingState();
+        }
+        return;
+      }
+
+      if (socket.currentRoomId) {
+        handleLeaveRoom(socket, io);
+      }
+
       const room = roomManager.getRoom(data.roomId);
       if (!room) {
         socket.emit('error', { message: '房间不存在' });
@@ -97,6 +112,7 @@ export function setupSocketHandlers(io: Server) {
       }
 
       const user = findUserById(socket.userId);
+      const alreadyInRoom = room.hasPlayer(socket.userId);
       const idx = room.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
       if (idx < 0) {
         socket.emit('error', { message: '房间已满' });
@@ -107,16 +123,20 @@ export function setupSocketHandlers(io: Server) {
       socket.currentRoomId = room.id;
 
       socket.emit('room_joined', { room: room.toRoomInfo(), seatIndex: idx });
-      io.to(room.id).emit('player_joined', {
-        playerId: socket.userId,
-        playerName: socket.username,
-        seatIndex: idx,
-      });
+      if (!alreadyInRoom && (!room.state || room.state.phase === 'waiting')) {
+        io.to(room.id).emit('player_joined', {
+          playerId: socket.userId,
+          playerName: socket.username,
+          seatIndex: idx,
+        });
+      }
 
       room.fillWithAI();
 
       if (room.canStart()) {
         room.startGame();
+      } else {
+        room.syncWaitingState();
       }
     });
 
@@ -148,6 +168,20 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
+    socket.on('request_my_cards', () => {
+      if (!socket.userId || !socket.currentRoomId) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      socket.emit('your_cards', room.getHand(socket.userId));
+    });
+
+    socket.on('start_next_round', () => {
+      if (!socket.currentRoomId) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      room.startNextRound();
+    });
+
     socket.on('chat', (data: { content: string }) => {
       if (!socket.userId || !socket.currentRoomId) return;
       io.to(socket.currentRoomId).emit('chat', {
@@ -177,7 +211,8 @@ function handleLeaveRoom(socket: AuthSocket, io: Server) {
       playerName: socket.username,
     });
 
-    if (room.getPlayerCount() === 0) {
+    if (room.getHumanPlayerCount() === 0) {
+      room.clearPlayers();
       roomManager.removeRoom(socket.currentRoomId);
     }
   }

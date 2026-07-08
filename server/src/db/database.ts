@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
-const DB_DIR = path.join(__dirname, '..', '..', 'data');
+const DB_DIR = path.join(process.cwd(), 'data');
 const USERS_FILE = path.join(DB_DIR, 'users.json');
 const RECORDS_FILE = path.join(DB_DIR, 'records.json');
 
