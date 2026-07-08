@@ -10,7 +10,7 @@ import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectRetu
 import { findBestPlay, findBestTribute } from '../engine/ai';
 
 const MAX_PLAYERS = 4;
-const TURN_TIMEOUT = 30000;
+const TURN_TIMEOUT = 10000;
 
 export class GameRoom {
   id: string;
@@ -189,7 +189,8 @@ export class GameRoom {
 
     const currentPlayer = this.players[this.state.currentPlayerIndex];
     if (currentPlayer.isAI) {
-      this.turnTimer = setTimeout(() => this.aiPlay(), 500);
+      this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
+      setTimeout(() => this.aiPlay(), 500);
     } else {
       this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
     }
@@ -204,6 +205,8 @@ export class GameRoom {
     if (playerIdx !== this.state.currentPlayerIndex) {
       return { success: false, error: '不是你的回合' };
     }
+
+    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
 
     const hand = this.hands.get(playerId) || [];
     if (cards.length === 0) {
@@ -277,6 +280,8 @@ export class GameRoom {
 
   private handlePass(playerId: string): { success: boolean; error?: string } {
     if (!this.state) return { success: false, error: '游戏未在进行中' };
+
+    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
 
     if (!this.state.lastPlay) {
       return { success: false, error: '首轮必须出牌' };
