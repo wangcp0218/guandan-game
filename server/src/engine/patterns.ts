@@ -356,9 +356,20 @@ export function identifyPattern(
     return { type: PatternType.FlushStraight, cards: allCards, rank: sorted[0].rank, length: 5 };
   }
 
-  if (cards.length >= 4 && cards.length <= 8 && isBomb(allCards)) {
-    const bombType = `bomb${cards.length}` as PatternType;
-    return { type: bombType, cards: allCards, rank: allCards[0].rank, length: cards.length };
+  if (cards.length >= 4 && cards.length <= 8) {
+    if (isBomb(allCards)) {
+      const bombType = `bomb${cards.length}` as PatternType;
+      return { type: bombType, cards: allCards, rank: allCards[0].rank, length: cards.length };
+    }
+    if (wilds.length > 0) {
+      const rankCount = new Map<number, number>();
+      for (const c of regulars) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
+      if (rankCount.size === 1) {
+        const total = regulars.length + wilds.length;
+        const bombType = `bomb${total}` as PatternType;
+        return { type: bombType, cards: allCards, rank: regulars[0].rank, length: total };
+      }
+    }
   }
 
   if (isSingle(allCards)) {
