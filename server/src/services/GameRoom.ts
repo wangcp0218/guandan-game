@@ -273,11 +273,7 @@ export class GameRoom {
         return { success: true };
       }
 
-      if (this.rankings.length === 1) {
-        this.state.currentPlayerIndex = playerIdx;
-      } else {
-        this.advanceTurn();
-      }
+      this.advanceTurn();
       this.broadcastState();
       this.startTurn();
       return { success: true };
