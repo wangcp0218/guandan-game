@@ -68,13 +68,13 @@ ${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
         'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-pro',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userMessage },
         ],
         temperature: 0.3,
-        max_tokens: 1024,
+        max_tokens: 512,
         response_format: { type: 'json_object' },
       }),
       signal: controller.signal,
