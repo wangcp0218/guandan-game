@@ -23,18 +23,14 @@ export default function HandCards({ cards, selectedIds, onToggle, currentLevel }
   }
 
   const CARD_W = 52;
-  const CARD_OVERLAP = 32;
-  const GROUP_GAP = 8;
+  const CARD_OVERLAP = 20;
+  const GROUP_GAP = 10;
   const totalWidth = groups.reduce((sum, g) => sum + CARD_W + (g.length - 1) * (CARD_W - CARD_OVERLAP), 0) + (groups.length - 1) * GROUP_GAP;
   const maxWidth = window.innerWidth - 80;
   let overlap = CARD_OVERLAP;
   let gap = GROUP_GAP;
   if (totalWidth > maxWidth) {
-    const excess = totalWidth - maxWidth;
-    overlap = Math.max(20, CARD_OVERLAP - Math.ceil(excess / cards.length));
-    if (CARD_W + (groups.length - 1) * GROUP_GAP + groups.reduce((s, g) => s + CARD_W + (g.length - 1) * (CARD_W - overlap), 0) > maxWidth) {
-      gap = Math.max(2, GROUP_GAP - Math.ceil(excess / groups.length));
-    }
+    overlap = Math.max(14, CARD_OVERLAP - Math.ceil((totalWidth - maxWidth) / cards.length));
   }
 
   return (
