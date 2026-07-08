@@ -9,13 +9,6 @@ import PlayerInfoComponent from '../components/PlayerInfo';
 import PlayArea from '../components/PlayArea';
 import Chat from '../components/Chat';
 
-const SEAT_POSITIONS = [
-  { top: '15%', left: '50%', label: 'top' },
-  { top: '50%', left: '10%', label: 'left' },
-  { top: '50%', right: '10%', label: 'right' },
-  { bottom: '18%', left: '50%', label: 'bottom' },
-];
-
 export default function GameRoom() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
@@ -186,8 +179,8 @@ export default function GameRoom() {
   return (
     <div style={styles.container}>
       <div style={styles.table}>
-        {/* Top player */}
-        <div style={{ ...styles.playerSpot, top: SEAT_POSITIONS[2].top, left: SEAT_POSITIONS[2].left, transform: 'translate(-50%, -50%)' }}>
+        {/* Top — 对家 (partner) */}
+        <div style={{ position: 'absolute', top: '8%', left: '50%', transform: 'translateX(-50%)' }}>
           {getPlayerForPosition(2) && (
             <PlayerInfoComponent
               player={getPlayerForPosition(2)!}
@@ -199,27 +192,27 @@ export default function GameRoom() {
           )}
         </div>
 
-        {/* Left player */}
-        <div style={{ ...styles.playerSpot, top: SEAT_POSITIONS[1].top, left: SEAT_POSITIONS[1].left, transform: 'translate(-50%, -50%)' }}>
-          {getPlayerForPosition(1) && (
+        {/* Left — 对手 */}
+        <div style={{ position: 'absolute', top: '45%', left: '3%', transform: 'translateY(-50%)' }}>
+          {getPlayerForPosition(3) && (
             <PlayerInfoComponent
-              player={getPlayerForPosition(1)!}
+              player={getPlayerForPosition(3)!}
               position="left"
-              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 1) % 4}
-              isMe={getPlayerForPosition(1)!.id === userId}
+              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 3) % 4}
+              isMe={getPlayerForPosition(3)!.id === userId}
               isPartner={false}
             />
           )}
         </div>
 
-        {/* Right player */}
-        <div style={{ ...styles.playerSpot, top: SEAT_POSITIONS[2].top, right: SEAT_POSITIONS[2].right, transform: 'translate(50%, -50%)' }}>
-          {getPlayerForPosition(3) && (
+        {/* Right — 对手 */}
+        <div style={{ position: 'absolute', top: '45%', right: '3%', transform: 'translateY(-50%)' }}>
+          {getPlayerForPosition(1) && (
             <PlayerInfoComponent
-              player={getPlayerForPosition(3)!}
+              player={getPlayerForPosition(1)!}
               position="right"
-              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 3) % 4}
-              isMe={getPlayerForPosition(3)!.id === userId}
+              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 1) % 4}
+              isMe={getPlayerForPosition(1)!.id === userId}
               isPartner={false}
             />
           )}

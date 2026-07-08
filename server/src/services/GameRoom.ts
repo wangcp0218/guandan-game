@@ -10,7 +10,7 @@ import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectRetu
 import { findBestPlay, findBestTribute } from '../engine/ai';
 
 const MAX_PLAYERS = 4;
-const TURN_TIMEOUT = 10000;
+const TURN_TIMEOUT = 30000;
 
 export class GameRoom {
   id: string;
