@@ -270,11 +270,13 @@ export class GameRoom {
         this.advanceTurn();
       }
       this.broadcastState();
+      this.startTurn();
       return { success: true };
     }
 
     this.advanceTurn();
     this.broadcastState();
+    this.startTurn();
     return { success: true };
   }
 
@@ -301,6 +303,7 @@ export class GameRoom {
 
     this.advanceTurn();
     this.broadcastState();
+    this.startTurn();
     return { success: true };
   }
 
