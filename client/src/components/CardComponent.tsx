@@ -33,119 +33,94 @@ interface Props {
   selected?: boolean;
   onClick?: () => void;
   faceDown?: boolean;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'hand';
   isLevelCard?: boolean;
 }
 
+interface CardDimensions {
+  w: React.CSSProperties['width'];
+  h: React.CSSProperties['height'];
+  center: React.CSSProperties['fontSize'];
+  corner: React.CSSProperties['fontSize'];
+  cornerSuit: React.CSSProperties['fontSize'];
+}
+
 export default function CardComponent({ card, selected, onClick, faceDown, size = 'md', isLevelCard }: Props) {
-  const dims = {
-    sm: { w: 36, h: 50, fs: 12, corner: 8, cornerSuit: 7 },
-    md: { w: 52, h: 72, fs: 16, corner: 11, cornerSuit: 9 },
-    lg: { w: 64, h: 88, fs: 20, corner: 14, cornerSuit: 11 },
+  const dims: Record<NonNullable<Props['size']>, CardDimensions> = {
+    sm: { w: 36, h: 50, center: 13, corner: 8, cornerSuit: 7 },
+    md: { w: 52, h: 72, center: 18, corner: 11, cornerSuit: 9 },
+    lg: { w: 64, h: 88, center: 22, corner: 14, cornerSuit: 11 },
+    hand: {
+      w: 'var(--hand-card-width)',
+      h: 'var(--hand-card-height)',
+      center: 'var(--hand-card-center-size)',
+      corner: 'var(--hand-card-rank-size)',
+      cornerSuit: 'var(--hand-card-suit-size)',
+    },
   };
-  const { w, h, fs, corner, cornerSuit } = dims[size];
+  const { w, h, center, corner, cornerSuit } = dims[size];
+  const isHandCard = size === 'hand';
   const isRed = RED_SUITS.has(card.suit);
-  const color = isRed ? '#d32f2f' : '#333';
+  const color = isRed ? '#c52c22' : '#15131a';
   const display = RANK_DISPLAY[card.rank] || '?';
   const suitSymbol = SUIT_SYMBOLS[card.suit] || '';
   const isJoker = card.rank === Rank.SmallJoker || card.rank === Rank.BigJoker;
 
   if (faceDown) {
     return (
-      <div style={{
-        width: w, height: h,
-        borderRadius: 6,
-        background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-        border: '2px solid #1e40af',
-        boxShadow: selected ? '0 0 0 3px #e6b422' : '0 2px 4px rgba(0,0,0,0.2)',
-        flexShrink: 0,
-      }} />
+      <div
+        className={`playing-card playing-card--${size} playing-card--back`}
+        style={{ width: w, height: h }}
+      />
     );
   }
 
-  const bg = isLevelCard
-    ? 'linear-gradient(135deg, #fff9c4, #fff176)'
-    : card.rank === Rank.BigJoker
-    ? 'linear-gradient(135deg, #ffcdd2, #ef9a9a)'
-    : card.rank === Rank.SmallJoker
-    ? 'linear-gradient(135deg, #e1bee7, #ce93d8)'
-    : '#fff';
+  const background = isLevelCard
+    ? 'linear-gradient(145deg, #fffdf1 0%, #fff5c7 100%)'
+    : isJoker
+      ? 'linear-gradient(145deg, #fffdfb 0%, #f5f0ea 100%)'
+      : 'linear-gradient(145deg, #ffffff 0%, #f4f4f2 100%)';
 
   return (
     <div
+      className={`playing-card playing-card--${size}${selected ? ' is-selected' : ''}${isLevelCard ? ' is-level-card' : ''}`}
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      aria-pressed={onClick ? !!selected : undefined}
+      aria-label={`${display}${isJoker ? '王' : suitSymbol}${isLevelCard ? '，级牌' : ''}`}
       style={{
         width: w,
         height: h,
-        borderRadius: 6,
-        background: bg,
-        border: selected ? '3px solid #e6b422' : '1px solid #ddd',
-        boxShadow: selected ? '0 0 0 3px rgba(230,180,34,0.3), 0 4px 8px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.15)',
-        display: 'flex',
-        flexDirection: 'column',
+        background,
         cursor: onClick ? 'pointer' : 'default',
-        transform: selected ? 'translateY(-8px)' : 'none',
-        transition: 'all 0.15s ease',
-        flexShrink: 0,
-        position: 'relative',
-        userSelect: 'none',
-        overflow: 'hidden',
+        color,
       }}
     >
-      {/* Top-left corner: rank + suit (always visible even when overlapped) */}
-      <div style={{
-        position: 'absolute',
-        top: 2,
-        left: 3,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        lineHeight: 1,
-        gap: 0,
-      }}>
-        <span style={{ fontSize: corner, fontWeight: 700, color, lineHeight: 1 }}>{display}</span>
-        {!isJoker && <span style={{ fontSize: cornerSuit, color, lineHeight: 1, marginTop: 1 }}>{suitSymbol}</span>}
+      <div className={`card-corner${isHandCard ? ' card-corner--hand' : ''}`}>
+        {isJoker && isHandCard ? (
+          <span className="joker-corner" style={{ fontSize: corner, color }}>
+            JOKER
+          </span>
+        ) : (
+          <>
+            <span className="card-rank" style={{ fontSize: corner }}>{display}</span>
+            {!isJoker && <span className="card-corner-suit" style={{ fontSize: cornerSuit }}>{suitSymbol}</span>}
+          </>
+        )}
       </div>
 
-      {/* Center: large suit symbol (visible when card is fully shown) */}
-      {!isJoker && (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginTop: 4,
-        }}>
-          <span style={{ fontSize: fs * 1.1, color: color, opacity: 0.85, lineHeight: 1 }}>{suitSymbol}</span>
-        </div>
-      )}
-      {isJoker && (
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          marginTop: 4,
-        }}>
-          <span style={{ fontSize: fs, fontWeight: 700, color, lineHeight: 1 }}>王</span>
+      <div className={`card-center${isJoker ? ' card-center--joker' : ''}`}>
+        <span style={{ fontSize: center }}>{isJoker ? (card.rank === Rank.BigJoker ? '★' : '☆') : suitSymbol}</span>
+      </div>
+
+      {!isHandCard && (
+        <div className="card-corner card-corner--bottom">
+          <span className="card-rank" style={{ fontSize: corner }}>{display}</span>
+          {!isJoker && <span className="card-corner-suit" style={{ fontSize: cornerSuit }}>{suitSymbol}</span>}
         </div>
       )}
 
-      {/* Bottom-right corner: rank + suit (rotated, like real cards) */}
-      <div style={{
-        position: 'absolute',
-        bottom: 2,
-        right: 3,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        lineHeight: 1,
-        transform: 'rotate(180deg)',
-        gap: 0,
-      }}>
-        <span style={{ fontSize: corner, fontWeight: 700, color, lineHeight: 1 }}>{display}</span>
-        {!isJoker && <span style={{ fontSize: cornerSuit, color, lineHeight: 1, marginTop: 1 }}>{suitSymbol}</span>}
-      </div>
+      {isHandCard && isLevelCard && <span className="level-card-badge">级牌</span>}
     </div>
   );
 }

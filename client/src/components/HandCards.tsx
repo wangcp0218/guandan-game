@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Rank } from '../sharedTypes';
+import { Card } from '../sharedTypes';
 import CardComponent from './CardComponent';
 
 interface Props {
@@ -9,81 +9,67 @@ interface Props {
   currentLevel: number;
 }
 
+function stackOffset(index: number) {
+  if (index === 0) return '0px';
+  return `calc(${Array.from({ length: index }, () => 'var(--hand-stack-rise)').join(' + ')})`;
+}
+
 export default function HandCards({ cards, selectedIds, onToggle, currentLevel }: Props) {
   if (cards.length === 0) return null;
 
   const groups: Card[][] = [];
   for (const card of cards) {
     const last = groups[groups.length - 1];
-    if (!last || last[0].rank !== card.rank) {
-      groups.push([card]);
-    } else {
-      last.push(card);
-    }
+    if (!last || last[0].rank !== card.rank) groups.push([card]);
+    else last.push(card);
   }
 
-  const CARD_W = 52;
-  const CARD_OVERLAP = 20;
-  const GROUP_GAP = 10;
-  const totalWidth = groups.reduce((sum, g) => sum + CARD_W + (g.length - 1) * (CARD_W - CARD_OVERLAP), 0) + (groups.length - 1) * GROUP_GAP;
-  const maxWidth = window.innerWidth - 80;
-  let overlap = CARD_OVERLAP;
-  let gap = GROUP_GAP;
-  if (totalWidth > maxWidth) {
-    overlap = Math.max(14, CARD_OVERLAP - Math.ceil((totalWidth - maxWidth) / cards.length));
-  }
+  const maxStack = Math.max(...groups.map(group => group.length));
+  const stackHeight = maxStack > 1
+    ? `calc(var(--hand-card-height) + ${Array.from({ length: maxStack - 1 }, () => 'var(--hand-stack-rise)').join(' + ')})`
+    : 'var(--hand-card-height)';
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'flex-end',
-      padding: '0 20px',
-      flexWrap: 'nowrap',
-      overflow: 'visible',
-    }}>
-      {groups.map((group, gi) => (
+    <div
+      className="hand-cards"
+      style={{ height: stackHeight } as React.CSSProperties}
+      aria-label={`手牌，共 ${cards.length} 张`}
+    >
+      {groups.map((group, groupIndex) => (
         <div
-          key={gi}
+          className="hand-card-group"
+          key={`${group[0].rank}-${groupIndex}`}
           style={{
-            display: 'flex',
-            marginLeft: gi === 0 ? 0 : gap,
-            position: 'relative',
+            zIndex: groupIndex + 1,
+            flexBasis: groupIndex === groups.length - 1
+              ? 'var(--hand-card-width)'
+              : 'var(--hand-column-step)',
+            minWidth: groupIndex === groups.length - 1
+              ? 'var(--hand-card-width)'
+              : 'var(--hand-column-min)',
           }}
         >
-          {group.map((card, ci) => {
-            const isLevelCard = card.rank === currentLevel;
+          {group.map((card, cardIndex) => {
+            const selected = selectedIds.has(card.id);
             return (
               <div
+                className="hand-card-slot"
                 key={card.id}
                 style={{
-                  marginLeft: ci === 0 ? 0 : -overlap,
-                  zIndex: gi * 100 + ci,
+                  bottom: stackOffset(cardIndex),
+                  zIndex: selected ? 100 : group.length - cardIndex,
                 }}
               >
                 <CardComponent
                   card={card}
-                  selected={selectedIds.has(card.id)}
+                  selected={selected}
                   onClick={() => onToggle(card.id)}
-                  isLevelCard={isLevelCard}
-                  size="md"
+                  isLevelCard={card.rank === currentLevel}
+                  size="hand"
                 />
               </div>
             );
           })}
-          {group.length > 1 && (
-            <span style={{
-              position: 'absolute',
-              bottom: -16,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              fontSize: 10,
-              color: 'rgba(255,255,255,0.4)',
-              whiteSpace: 'nowrap',
-            }}>
-              x{group.length}
-            </span>
-          )}
         </div>
       ))}
     </div>

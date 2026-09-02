@@ -76,3 +76,183 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+/* Screenshot-inspired hand: ranks form columns and matching ranks stack upward. */
+.hand-cards {
+  --hand-card-width: clamp(70px, 7vw, 136px);
+  --hand-card-height: clamp(102px, 9.8vw, 194px);
+  --hand-card-rank-size: clamp(27px, 2.75vw, 53px);
+  --hand-card-suit-size: clamp(21px, 2.15vw, 42px);
+  --hand-card-center-size: clamp(44px, 4.6vw, 90px);
+  --hand-stack-rise: clamp(29px, 3vw, 56px);
+  --hand-column-step: clamp(54px, 5.6vw, 108px);
+  --hand-column-min: 38px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: min(100%, 1960px);
+  margin: 0 auto;
+  padding: 14px 8px 0;
+  transition: height 160ms ease;
+}
+
+.hand-card-group {
+  position: relative;
+  height: 100%;
+  flex-grow: 0;
+  flex-shrink: 1;
+  overflow: visible;
+}
+
+.hand-card-slot {
+  position: absolute;
+  left: 0;
+  width: var(--hand-card-width);
+  height: var(--hand-card-height);
+  transition: bottom 160ms ease;
+}
+
+.playing-card {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #c8c8c8;
+  border-radius: 6px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.85);
+  overflow: hidden;
+  user-select: none;
+  transform: translateY(0);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.playing-card--hand {
+  border-radius: clamp(6px, .65vw, 12px);
+  border-color: #b9b9b7;
+  box-shadow: 0 2px 7px rgba(0,0,0,0.36), inset 0 1px 0 #fff;
+}
+
+.playing-card[role="button"]:hover {
+  transform: translateY(-5px);
+}
+
+.playing-card.is-selected,
+.playing-card.is-selected:hover {
+  z-index: 200;
+  transform: translateY(-18px);
+  border: 3px solid #f2bd22;
+  box-shadow: 0 0 0 3px rgba(242,189,34,0.28), 0 8px 16px rgba(0,0,0,0.38);
+}
+
+.playing-card--back {
+  background: repeating-linear-gradient(135deg, #2366b4 0 5px, #194e92 5px 10px);
+  border: 2px solid #d9e4ef;
+}
+
+.card-corner {
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: .9;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+}
+
+.card-corner--hand {
+  top: clamp(3px, .25vw, 6px);
+  left: clamp(4px, .42vw, 9px);
+  flex-direction: row;
+  align-items: baseline;
+  gap: clamp(1px, .15vw, 3px);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.card-rank,
+.card-corner-suit {
+  line-height: 1;
+}
+
+.card-corner--bottom {
+  inset: auto 3px 2px auto;
+  transform: rotate(180deg);
+}
+
+.card-center {
+  position: absolute;
+  inset: 35% 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  opacity: .98;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.playing-card:not(.playing-card--hand) .card-center {
+  inset: 0;
+}
+
+.card-center--joker {
+  color: #c79013;
+  text-shadow: 0 1px 0 #fff;
+}
+
+.joker-corner {
+  display: block;
+  max-width: calc(var(--hand-card-width) - 8px);
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+  letter-spacing: -.09em;
+  line-height: 1;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
+.level-card-badge {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 2px 3px;
+  border: 2px solid #526fd3;
+  border-radius: 3px;
+  background: rgba(255,255,255,.76);
+  color: #4966cc;
+  font-size: clamp(10px, 1vw, 18px);
+  font-weight: 800;
+  line-height: 1;
+  writing-mode: vertical-rl;
+}
+
+@media (max-height: 720px) {
+  .hand-cards {
+    --hand-card-width: clamp(62px, 6.2vw, 94px);
+    --hand-card-height: clamp(90px, 8.8vw, 134px);
+    --hand-card-rank-size: clamp(24px, 2.35vw, 36px);
+    --hand-card-suit-size: clamp(18px, 1.8vw, 28px);
+    --hand-card-center-size: clamp(38px, 3.9vw, 60px);
+    --hand-stack-rise: clamp(24px, 2.45vw, 38px);
+    --hand-column-step: clamp(48px, 5vw, 76px);
+  }
+}
+
+@media (max-width: 760px) {
+  .hand-cards {
+    --hand-card-width: 64px;
+    --hand-card-height: 94px;
+    --hand-card-rank-size: 25px;
+    --hand-card-suit-size: 19px;
+    --hand-card-center-size: 40px;
+    --hand-stack-rise: 25px;
+    --hand-column-step: 48px;
+    --hand-column-min: 30px;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: visible;
+  }
+}
