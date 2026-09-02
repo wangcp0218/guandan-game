@@ -321,9 +321,9 @@ export default function GameRoom() {
         <div style={{
           position: 'absolute',
           right: 16,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          height: 300,
+          top: 16,
+          height: 260,
+          zIndex: 20,
         }}>
           <Chat messages={messages} onSend={handleChat} />
         </div>
