@@ -3,7 +3,7 @@ import { effectiveRank, sortCards, isJoker } from './card';
 import {
   identifyPattern, isBomb, isKingBomb, isFlushStraight,
   isStraight, isConsecutivePair, isPlane, isPlaneWings,
-  isTriplePair,
+  isTriplePair, isWildCard,
 } from './patterns';
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
@@ -154,18 +154,77 @@ export function generateLegalPlays(
   return patterns;
 }
 
+function strategicPlayKey(play: CardPattern): string {
+  const cards = play.cards
+    .map(card => `${card.suit}${card.rank}`)
+    .sort()
+    .join(',');
+  return `${play.type}:${play.rank}:${play.length}:${cards}`;
+}
+
 function dedupeStrategicPlays(plays: CardPattern[]): CardPattern[] {
   const seen = new Set<string>();
   return plays.filter(play => {
-    const cards = play.cards
-      .map(card => `${card.suit}${card.rank}`)
-      .sort()
-      .join(',');
-    const key = `${play.type}:${play.rank}:${play.length}:${cards}`;
+    const key = strategicPlayKey(play);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+function applyStrategicGuards(
+  plays: CardPattern[],
+  hand: Card[],
+  currentLevel: number,
+  context?: AiDecisionContext,
+): CardPattern[] {
+  let guarded = plays;
+
+  // Preserve 逢人配 instead of wasting it as a single. The only exception is an
+  // urgent block when an opponent has one card and no safer legal play exists.
+  if (hand.length > 1) {
+    const withoutWildSingles = guarded.filter(play => !(
+      play.type === PatternType.Single && isWildCard(play.cards[0], currentLevel)
+    ));
+    const opponentReportedSingle = context?.players.some(player =>
+      player.relation === 'opponent' && player.finishRank === null && player.cardCount === 1
+    ) || false;
+    if (withoutWildSingles.length > 0 || !opponentReportedSingle) {
+      guarded = withoutWildSingles;
+    }
+  }
+
+  // Never spend a bomb to overtake the partner unless it immediately empties the hand.
+  const partnerLed = context
+    && context.lastPlayPlayerIndex >= 0
+    && context.lastPlayPlayerIndex === context.partnerSeatIndex;
+  if (partnerLed) {
+    guarded = guarded.filter(play => !isBombPattern(play) || play.cards.length === hand.length);
+  }
+
+  return guarded;
+}
+
+function chooseGuardedFreePlayFallback(
+  plays: CardPattern[],
+  currentLevel: number,
+): CardPattern | null {
+  const singles = plays.filter(play =>
+    play.type === PatternType.Single && !isJoker(play.cards[0])
+  );
+  if (singles.length > 0) {
+    return singles.reduce((best, play) =>
+      effectiveRank(play.cards[0].rank, currentLevel) < effectiveRank(best.cards[0].rank, currentLevel)
+        ? play
+        : best
+    );
+  }
+
+  const nonBombs = plays.filter(play => !isBombPattern(play));
+  if (nonBombs.length > 0) {
+    return nonBombs.reduce((best, play) => play.cards.length > best.cards.length ? play : best);
+  }
+  return plays[0] || null;
 }
 
 export function findBestPlay(
@@ -256,6 +315,13 @@ export async function findSmartPlay(
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
+  legalPlays = applyStrategicGuards(legalPlays, hand, currentLevel, context);
+
+  const guardedRuleResult = ruleResult && legalPlays.some(play =>
+    strategicPlayKey(play) === strategicPlayKey(ruleResult)
+  ) ? ruleResult : null;
+  const fallbackResult = guardedRuleResult
+    || (isFreePlay ? chooseGuardedFreePlayFallback(legalPlays, currentLevel) : null);
 
   try {
     const llmResult = await llmFindBestPlay(
@@ -270,7 +336,7 @@ export async function findSmartPlay(
     if (llmResult !== undefined) return llmResult;
   } catch {}
 
-  return ruleResult;
+  return fallbackResult;
 }
 
 export function findBestReturnTribute(hand: Card[]): Card {

@@ -65,6 +65,7 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
   const display = RANK_DISPLAY[card.rank] || '?';
   const suitSymbol = SUIT_SYMBOLS[card.suit] || '';
   const isJoker = card.rank === Rank.SmallJoker || card.rank === Rank.BigJoker;
+  const jokerName = card.rank === Rank.BigJoker ? '大王' : '小王';
 
   if (faceDown) {
     return (
@@ -87,7 +88,7 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
       onClick={onClick}
       role={onClick ? 'button' : undefined}
       aria-pressed={onClick ? !!selected : undefined}
-      aria-label={`${display}${isJoker ? '王' : suitSymbol}${isLevelCard ? '，级牌' : ''}`}
+      aria-label={`${isJoker ? jokerName : `${display}${suitSymbol}`}${isLevelCard ? '，级牌' : ''}`}
       style={{
         width: w,
         height: h,
@@ -99,7 +100,7 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
       <div className={`card-corner${isHandCard ? ' card-corner--hand' : ''}`}>
         {isJoker && isHandCard ? (
           <span className="joker-corner" style={{ fontSize: corner, color }}>
-            JOKER
+            {jokerName}
           </span>
         ) : (
           <>
@@ -109,8 +110,18 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
         )}
       </div>
 
-      <div className={`card-center${isJoker ? ' card-center--joker' : ''}`}>
-        <span style={{ fontSize: center }}>{isJoker ? (card.rank === Rank.BigJoker ? '★' : '☆') : suitSymbol}</span>
+      <div
+        className={`card-center${isJoker ? ' card-center--joker' : ''}`}
+        style={isJoker ? { color } : undefined}
+      >
+        {isJoker ? (
+          <span className="joker-face">
+            <span style={{ fontSize: center }}>{card.rank === Rank.BigJoker ? '★' : '☆'}</span>
+            <span className="joker-name">{jokerName}</span>
+          </span>
+        ) : (
+          <span style={{ fontSize: center }}>{suitSymbol}</span>
+        )}
       </div>
 
       {!isHandCard && (

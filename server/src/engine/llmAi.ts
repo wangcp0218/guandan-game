@@ -106,11 +106,15 @@ export async function llmFindBestPlay(
   const systemPrompt = `你是四人掼蛋的高水平搭档型AI。你不需要判断牌型合法性，服务端已给出一组经过校验的候选方案，只能选择候选的option_id。
 你的目标是让自己与对家组成的队伍获得尽可能好的名次，而不是只顾自己最快出完。
 关键规则：红桃级牌是逢人配；大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹张数越多越大；天王炸最大。
-策略：优先帮助即将出完的队友；对手剩1至2张时主动封堵；非必要不拆炸弹、同花顺和整齐组合；能用普通牌压制就不用炸弹；自由出牌优先清理孤张或一次多出牌，但要结合队友与对手余牌。
+策略：优先帮助即将出完的队友；对手剩1至2张时主动封堵；红桃级牌作为逢人配应优先用于组合，除非紧急拦截报单对手，否则绝不单出；队友领牌时默认不压，绝不使用炸弹压队友，除非该手能让自己立即出完；非必要不拆炸弹、同花顺和整齐组合；能用普通牌压制就不用炸弹；自由出牌优先清理孤张或一次多出牌，但要结合队友与对手余牌。
 请简短权衡本轮局势，只输出JSON。`;
 
-  const lastPlayer = context && context.lastPlayPlayerIndex >= 0
-    ? `座位${context.lastPlayPlayerIndex}`
+  const lastPlayerSnapshot = context?.players.find(player =>
+    player.seatIndex === context.lastPlayPlayerIndex
+  );
+  const relationNames = { self: '自己', partner: '队友', opponent: '对手' } as const;
+  const lastPlayer = lastPlayerSnapshot
+    ? `座位${lastPlayerSnapshot.seatIndex}（${relationNames[lastPlayerSnapshot.relation]}）`
     : '无';
   const userPrompt = `当前是${currentLevel}级，自己座位${context?.selfSeatIndex ?? '未知'}，队友座位${context?.partnerSeatIndex ?? '未知'}。
 阶段：${isFreePlay ? '自由出牌，必须选择一个候选方案' : '跟牌，可以选择候选方案或不出'}。

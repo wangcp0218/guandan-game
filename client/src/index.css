@@ -202,13 +202,29 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   text-shadow: 0 1px 0 #fff;
 }
 
+.joker-face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.joker-name {
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: clamp(9px, 1.15vw, 20px);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .joker-corner {
   display: block;
   max-width: calc(var(--hand-card-width) - 8px);
   overflow: hidden;
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-weight: 700;
-  letter-spacing: -.09em;
+  letter-spacing: 0;
   line-height: 1;
   writing-mode: vertical-rl;
   text-orientation: mixed;
