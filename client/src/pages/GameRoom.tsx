@@ -1,12 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
-import { GameState, Card, PlayerInfo as PlayerInfoType, ChatMessage, RoundResult } from '../sharedTypes';
+import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, ChatMessage, RoundResult } from '../sharedTypes';
 import HandCards from '../components/HandCards';
-import CardComponent from '../components/CardComponent';
 import PlayerInfoComponent from '../components/PlayerInfo';
-import PlayArea from '../components/PlayArea';
+import PlayArea, { PlayerAction } from '../components/PlayArea';
 import Chat from '../components/Chat';
 
 export default function GameRoom() {
@@ -19,7 +18,7 @@ export default function GameRoom() {
     messages, addMessage, roundResult, setRoundResult, reset,
   } = useGameStore();
 
-  const [playHistory, setPlayHistory] = useState<{ playerId: string; playerName: string; pattern: any }[]>([]);
+  const [playerActions, setPlayerActions] = useState<Record<string, PlayerAction>>({});
   const [errorMsg, setErrorMsg] = useState('');
   const [waiting, setWaiting] = useState(true);
 
@@ -38,6 +37,16 @@ export default function GameRoom() {
       setGameState(state);
       setWaiting(state.phase === 'waiting');
 
+      setPlayerActions(previous => {
+        if (!state.lastPlay || state.lastPlayPlayerIndex < 0 || state.passCount >= 3) return {};
+        const lastPlayer = state.players[state.lastPlayPlayerIndex];
+        if (!lastPlayer || previous[lastPlayer.id]?.type === 'play') return previous;
+        return {
+          ...previous,
+          [lastPlayer.id]: { type: 'play', pattern: state.lastPlay },
+        };
+      });
+
       const myPlayer = state.players.find(p => p.id === userId);
       if (myPlayer) {
         setMySeatIndex(myPlayer.seatIndex);
@@ -48,6 +57,7 @@ export default function GameRoom() {
     const onGameStarted = (state: GameState) => {
       setGameState(state);
       setWaiting(state.phase === 'waiting');
+      setPlayerActions({});
     };
     socket.on('game_started', onGameStarted);
 
@@ -56,13 +66,19 @@ export default function GameRoom() {
     };
     socket.on('your_cards', onMyCards);
 
-    const onPlayerPlayed = (data: { playerId: string; playerName: string; pattern: any }) => {
-      setPlayHistory(prev => [...prev, data]);
+    const onPlayerPlayed = (data: { playerId: string; playerName: string; pattern: CardPattern }) => {
+      setPlayerActions(previous => ({
+        ...previous,
+        [data.playerId]: { type: 'play', pattern: data.pattern },
+      }));
     };
     socket.on('player_played', onPlayerPlayed);
 
     const onPlayerPass = (data: { playerId: string }) => {
-      // handled via game_state update
+      setPlayerActions(previous => ({
+        ...previous,
+        [data.playerId]: { type: 'pass' },
+      }));
     };
     socket.on('player_pass', onPlayerPass);
 
@@ -73,6 +89,7 @@ export default function GameRoom() {
 
     const onRoundEnd = (result: RoundResult) => {
       setRoundResult(result);
+      setPlayerActions({});
     };
     socket.on('round_end', onRoundEnd);
 
@@ -218,6 +235,17 @@ export default function GameRoom() {
           )}
         </div>
 
+        {/* Each player's latest action stays near their seat for clear ownership. */}
+        {([1, 2, 3] as const).map(positionIndex => {
+          const player = getPlayerForPosition(positionIndex);
+          const position = positionIndex === 1 ? 'right' : positionIndex === 2 ? 'top' : 'left';
+          return player ? (
+            <div key={position} style={styles[`${position}Action`]}>
+              <PlayArea action={playerActions[player.id]} position={position} />
+            </div>
+          ) : null;
+        })}
+
         {/* Center - play area */}
         <div style={styles.centerArea}>
           {waiting ? (
@@ -232,7 +260,12 @@ export default function GameRoom() {
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 8 }}>
                 等级 {currentLevel}
               </p>
-              <PlayArea lastPlay={gameState?.lastPlay || null} playHistory={playHistory} />
+              {getPlayerForPosition(0) && (
+                <PlayArea
+                  action={playerActions[getPlayerForPosition(0)!.id]}
+                  position="bottom"
+                />
+              )}
             </div>
           )}
         </div>
@@ -382,6 +415,27 @@ const styles: Record<string, React.CSSProperties> = {
     top: '50%',
     left: '50%',
     transform: 'translate(-50%, -50%)',
+  },
+  topAction: {
+    position: 'absolute',
+    top: '21%',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 10,
+  },
+  leftAction: {
+    position: 'absolute',
+    top: '39%',
+    left: '15%',
+    transform: 'translateY(-50%)',
+    zIndex: 10,
+  },
+  rightAction: {
+    position: 'absolute',
+    top: '39%',
+    right: '20%',
+    transform: 'translateY(-50%)',
+    zIndex: 10,
   },
   waiting: {
     textAlign: 'center',

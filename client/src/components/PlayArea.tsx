@@ -1,59 +1,37 @@
-import React from 'react';
-import { CardPattern, Card, Rank, Suit } from '../sharedTypes';
+import { CardPattern } from '../sharedTypes';
 import CardComponent from './CardComponent';
 
+export type PlayerAction =
+  | { type: 'play'; pattern: CardPattern }
+  | { type: 'pass' };
+
 interface Props {
-  lastPlay: CardPattern | null;
-  playHistory: { playerId: string; playerName: string; pattern: CardPattern }[];
+  action?: PlayerAction;
+  position: 'top' | 'left' | 'right' | 'bottom';
 }
 
-export default function PlayArea({ lastPlay, playHistory }: Props) {
-  return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: 8,
-      minHeight: 120,
-    }}>
-      {playHistory.length > 0 && (
-        <div style={{
-          display: 'flex',
-          gap: 8,
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-        }}>
-          {playHistory.slice(-2).map((h, i) => (
-            <div key={i} style={{
-              textAlign: 'center',
-              opacity: i === playHistory.slice(-2).length - 1 ? 1 : 0.5,
-            }}>
-              <div style={{ display: 'flex', gap: 2, marginBottom: 4 }}>
-                {h.pattern.cards.map((c, j) => (
-                  <CardComponent key={j} card={c} size="sm" />
-                ))}
-              </div>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>
-                {h.playerName} - {h.pattern.type}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+export default function PlayArea({ action, position }: Props) {
+  if (!action) return null;
 
-      {lastPlay && (
-        <div style={{
-          display: 'flex',
-          gap: 3,
-          padding: '8px 16px',
-          borderRadius: 10,
-          background: 'rgba(255,255,255,0.08)',
-        }}>
-          {lastPlay.cards.slice(0, 8).map((c, i) => (
-            <CardComponent key={i} card={c} size="md" />
-          ))}
+  if (action.type === 'pass') {
+    return (
+      <div className={`seat-action-pass seat-action-pass--${position}`}>
+        不出
+      </div>
+    );
+  }
+
+  return (
+    <div className={`seat-action-cards seat-action-cards--${position}`}>
+      {action.pattern.cards.map((card, index) => (
+        <div
+          className="seat-action-card"
+          key={card.id}
+          style={{ marginLeft: index === 0 ? 0 : -13, zIndex: index + 1 }}
+        >
+          <CardComponent card={card} size="md" />
         </div>
-      )}
+      ))}
     </div>
   );
 }

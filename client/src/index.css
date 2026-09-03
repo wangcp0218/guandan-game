@@ -229,6 +229,46 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   writing-mode: vertical-rl;
 }
 
+.seat-action-cards {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 72px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(4, 38, 23, .28);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .18);
+  pointer-events: none;
+}
+
+.seat-action-card {
+  position: relative;
+  flex: 0 0 52px;
+}
+
+.seat-action-pass {
+  min-width: 84px;
+  color: #ffe0a3;
+  font-size: clamp(24px, 2.4vw, 40px);
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-align: center;
+  text-shadow: 0 2px 0 #8b4a12, 0 4px 12px rgba(0, 0, 0, .55);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 900px), (max-height: 650px) {
+  .seat-action-cards {
+    transform: scale(.86);
+    transform-origin: center;
+  }
+
+  .seat-action-pass {
+    font-size: 24px;
+  }
+}
+
 @media (max-height: 720px) {
   .hand-cards {
     --hand-card-width: clamp(62px, 6.2vw, 94px);
