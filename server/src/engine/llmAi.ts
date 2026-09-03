@@ -3,9 +3,14 @@ import { cardDisplayName, sortCards, effectiveRank } from './card';
 import { identifyPattern } from './patterns';
 import { canBeat, canFreePlay } from './compare';
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
-const LLM_TIMEOUT = 2000;
+const DEFAULT_MODEL = 'deepseek-v4-flash';
+const DEFAULT_TIMEOUT = 8000;
+
+function getTimeoutMs(): number {
+  const configured = Number(process.env.DEEPSEEK_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_TIMEOUT;
+}
 
 function describeHand(cards: Card[], currentLevel: number): string {
   const sorted = sortCards(cards, currentLevel);
@@ -38,7 +43,8 @@ export async function llmDecidePlay(
   isFreePlay: boolean,
   currentLevel: number
 ): Promise<Card[] | null> {
-  if (!DEEPSEEK_API_KEY) return null;
+  const apiKey = process.env.DEEPSEEK_API_KEY || '';
+  if (!apiKey) return null;
 
   try {
     const handDesc = describeHand(hand, currentLevel);
@@ -59,28 +65,32 @@ ${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
 返回JSON:{"card_ids":[牌id列表],"reason":"理由"}。不出则card_ids:[]。自由出牌优先小单张/小对子。`;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT);
+    const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs());
 
-    const response = await fetch(DEEPSEEK_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'deepseek-v4-pro',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        temperature: 0.3,
-        max_tokens: 512,
-        response_format: { type: 'json_object' },
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
+    let response: Response;
+    try {
+      response = await fetch(DEEPSEEK_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: process.env.DEEPSEEK_MODEL || DEFAULT_MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          temperature: 0.3,
+          thinking: { type: 'disabled' },
+          max_tokens: 512,
+          response_format: { type: 'json_object' },
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       console.error(`DeepSeek API error: ${response.status}`);
@@ -95,6 +105,7 @@ ${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
     const cardIds: number[] = parsed.card_ids || [];
 
     if (cardIds.length === 0) return [];
+    if (new Set(cardIds).size !== cardIds.length) return null;
 
     const selectedCards = cardIds
       .map(id => hand.find(c => c.id === id))
@@ -123,11 +134,9 @@ export async function llmFindBestPlay(
   lastPattern: CardPattern | null,
   isFreePlay: boolean,
   currentLevel: number
-): Promise<CardPattern | null> {
+): Promise<CardPattern | null | undefined> {
   const llmCards = await llmDecidePlay(hand, lastPattern, isFreePlay, currentLevel);
-  if (llmCards !== null) {
-    if (llmCards.length === 0) return null;
-    return identifyPattern(llmCards, currentLevel);
-  }
-  return null;
+  if (llmCards === null) return undefined;
+  if (llmCards.length === 0) return null;
+  return identifyPattern(llmCards, currentLevel) || undefined;
 }

@@ -7,7 +7,7 @@ import { createDeck, shuffleDeck, dealCards, sortCards, isJoker } from '../engin
 import { identifyPattern, isValidPlay } from '../engine/patterns';
 import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
 import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectReturnTributeCard } from '../engine/rules';
-import { findBestPlay, findBestTribute } from '../engine/ai';
+import { findBestPlay, findBestTribute, findSmartPlay } from '../engine/ai';
 
 const MAX_PLAYERS = 4;
 const TURN_TIMEOUT = 30000;
@@ -359,15 +359,32 @@ export class GameRoom {
     this.startGame();
   }
 
-  private aiPlay() {
+  private async aiPlay() {
     if (!this.state) return;
     try {
+      const expectedState = this.state;
       const playerIdx = this.state.currentPlayerIndex;
       const player = this.players[playerIdx];
       const hand = this.hands.get(player.id) || [];
 
       const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
-      const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
+      const pattern = await findSmartPlay(
+        hand,
+        this.state.lastPlay,
+        isFreePlay,
+        this.state.currentLevel,
+      );
+
+      // Ignore a delayed model response if the round or active player changed.
+      if (
+        !this.state ||
+        this.state !== expectedState ||
+        this.state.phase !== GamePhase.Playing ||
+        this.state.currentPlayerIndex !== playerIdx ||
+        this.players[playerIdx]?.id !== player.id
+      ) {
+        return;
+      }
 
       if (pattern) {
         this.playCards(player.id, pattern.cards);

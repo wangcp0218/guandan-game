@@ -238,7 +238,8 @@ export async function findSmartPlay(
 
   try {
     const llmResult = await llmFindBestPlay(hand, lastPattern, isFreePlay, currentLevel);
-    if (llmResult) return llmResult;
+    // undefined means the model was unavailable/invalid; null is an intentional pass.
+    if (llmResult !== undefined) return llmResult;
   } catch {}
 
   return ruleResult;
