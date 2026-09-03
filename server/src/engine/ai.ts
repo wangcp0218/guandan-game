@@ -77,15 +77,13 @@ function generateStraights(hand: Card[]): Card[][] {
     }
     const len = end - start + 1;
     if (len >= 5) {
-      for (let l = 5; l <= len; l++) {
-        const straightRanks = ranks.slice(start, start + l);
-        const cards: Card[] = [];
-        for (const r of straightRanks) {
-          const c = hand.find(x => x.rank === r && !cards.includes(x));
-          if (c) cards.push(c);
-        }
-        if (cards.length === l) result.push(cards);
+      const straightRanks = ranks.slice(start, start + 5);
+      const cards: Card[] = [];
+      for (const r of straightRanks) {
+        const c = hand.find(x => x.rank === r && !cards.includes(x));
+        if (c) cards.push(c);
       }
+      if (cards.length === 5) result.push(cards);
     }
   }
   return result;

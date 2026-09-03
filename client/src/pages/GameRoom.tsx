@@ -196,6 +196,21 @@ export default function GameRoom() {
   return (
     <div style={styles.container}>
       <div style={styles.table}>
+        <div className="room-exit-actions">
+          <button
+            className="btn-danger"
+            onClick={handleLeaveRoom}
+          >
+            退出房间
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={handleLogout}
+          >
+            退出登录
+          </button>
+        </div>
+
         {/* Top — 对家 (partner) */}
         <div style={{ position: 'absolute', top: '8%', left: '50%', transform: 'translateX(-50%)' }}>
           {getPlayerForPosition(2) && (
@@ -285,8 +300,8 @@ export default function GameRoom() {
 
         {/* Bottom - my hand cards */}
         <div style={styles.bottomArea}>
-          <div style={styles.actions}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="game-action-bar">
+            <div className="game-turn-status">
               <span style={{
                 fontSize: 12,
                 color: isMyTurn ? '#e6b422' : 'rgba(255,255,255,0.4)',
@@ -298,7 +313,7 @@ export default function GameRoom() {
                 <span style={{ color: '#ff6b6b', fontSize: 12 }}>{errorMsg}</span>
               )}
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="game-play-actions">
               <button
                 className="btn-primary"
                 onClick={handlePlay}
@@ -339,21 +354,8 @@ export default function GameRoom() {
               >
                 不出
               </button>
-              <button
-                className="btn-danger"
-                onClick={handleLeaveRoom}
-                style={{ padding: '8px 16px', fontSize: 12 }}
-              >
-                退出房间
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={handleLogout}
-                style={{ padding: '8px 16px', fontSize: 12 }}
-              >
-                退出登录
-              </button>
             </div>
+            <div className="game-action-spacer" aria-hidden="true" />
           </div>
           <HandCards
             cards={myCards}
@@ -364,13 +366,7 @@ export default function GameRoom() {
         </div>
 
         {/* Chat panel */}
-        <div style={{
-          position: 'absolute',
-          right: 16,
-          top: 16,
-          height: 260,
-          zIndex: 20,
-        }}>
+        <div className="game-chat-panel">
           <Chat messages={messages} onSend={handleChat} />
         </div>
 
@@ -459,12 +455,6 @@ const styles: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     padding: '0 20px 12px',
-  },
-  actions: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
   },
   modal: {
     position: 'fixed',

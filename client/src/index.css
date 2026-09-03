@@ -204,30 +204,42 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 
 .joker-face {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
 }
 
-.joker-name {
+.joker-card-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  z-index: 3;
+  padding: 2px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  background: rgba(255,255,255,.82);
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  font-size: clamp(9px, 1.15vw, 20px);
+  font-size: 8px;
   font-weight: 800;
   line-height: 1;
-  white-space: nowrap;
+  letter-spacing: 0;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
 }
 
-.joker-corner {
-  display: block;
-  max-width: calc(var(--hand-card-width) - 8px);
-  overflow: hidden;
-  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 1;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
+.joker-card-badge--big {
+  color: #c52c22;
+}
+
+.joker-card-badge--small {
+  color: #30343b;
+}
+
+.playing-card--hand .joker-card-badge {
+  left: 5px;
+  bottom: 5px;
+  padding: 2px 3px;
+  border-width: 2px;
+  font-size: clamp(10px, 1vw, 18px);
 }
 
 .level-card-badge {
@@ -281,6 +293,54 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   z-index: 30;
 }
 
+.room-exit-actions {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 31;
+  display: flex;
+  gap: 8px;
+}
+
+.room-exit-actions button {
+  padding: 8px 16px;
+  font-size: 12px;
+}
+
+.game-chat-panel {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  z-index: 20;
+  height: 260px;
+}
+
+.game-action-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.game-turn-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-play-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.game-action-spacer {
+  min-width: 0;
+}
+
 @media (max-width: 900px), (max-height: 650px) {
   .seat-action-cards {
     transform: scale(.86);
@@ -297,6 +357,24 @@ input::placeholder { color: rgba(255,255,255,0.5); }
     transform: scale(.72);
     transform-origin: left bottom;
   }
+
+  .room-exit-actions {
+    top: 8px;
+    right: 8px;
+  }
+
+  .room-exit-actions button {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .game-chat-panel {
+    top: 48px;
+    right: 8px;
+    height: 210px;
+    transform: scale(.86);
+    transform-origin: right top;
+  }
 }
 
 @media (max-height: 720px) {
@@ -312,6 +390,24 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 @media (max-width: 760px) {
+  .game-action-bar {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .game-turn-status {
+    justify-content: center;
+    order: 2;
+  }
+
+  .game-play-actions {
+    order: 1;
+  }
+
+  .game-action-spacer {
+    display: none;
+  }
+
   .hand-cards {
     --hand-card-width: 64px;
     --hand-card-height: 94px;

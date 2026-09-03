@@ -37,7 +37,8 @@ export function isTriplePair(cards: Card[]): boolean {
 }
 
 export function isStraight(cards: Card[]): boolean {
-  if (cards.length < 5) return false;
+  // 掼蛋顺子固定为 5 张，不允许连出 6 张或更多。
+  if (cards.length !== 5) return false;
   for (const c of cards) {
     if (c.rank === Rank.Two || isJoker(c)) return false;
   }
@@ -173,7 +174,7 @@ function tryStraightWithWilds(
   totalLength: number,
   currentLevel: number
 ): CardPattern | null {
-  if (totalLength < 5) return null;
+  if (totalLength !== 5) return null;
 
   const rankSet = new Set<number>();
   for (const c of regulars) {

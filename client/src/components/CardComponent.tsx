@@ -98,16 +98,8 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
       }}
     >
       <div className={`card-corner${isHandCard ? ' card-corner--hand' : ''}`}>
-        {isJoker && isHandCard ? (
-          <span className="joker-corner" style={{ fontSize: corner, color }}>
-            {jokerName}
-          </span>
-        ) : (
-          <>
-            <span className="card-rank" style={{ fontSize: corner }}>{display}</span>
-            {!isJoker && <span className="card-corner-suit" style={{ fontSize: cornerSuit }}>{suitSymbol}</span>}
-          </>
-        )}
+        <span className="card-rank" style={{ fontSize: corner }}>{display}</span>
+        {!isJoker && <span className="card-corner-suit" style={{ fontSize: cornerSuit }}>{suitSymbol}</span>}
       </div>
 
       <div
@@ -117,7 +109,6 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
         {isJoker ? (
           <span className="joker-face">
             <span style={{ fontSize: center }}>{card.rank === Rank.BigJoker ? '★' : '☆'}</span>
-            <span className="joker-name">{jokerName}</span>
           </span>
         ) : (
           <span style={{ fontSize: center }}>{suitSymbol}</span>
@@ -132,6 +123,11 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
       )}
 
       {isHandCard && isLevelCard && <span className="level-card-badge">级牌</span>}
+      {isJoker && (
+        <span className={`joker-card-badge joker-card-badge--${card.rank === Rank.BigJoker ? 'big' : 'small'}`}>
+          {jokerName}
+        </span>
+      )}
     </div>
   );
 }
