@@ -41,6 +41,16 @@ export default function PlayerInfoComponent({ player, position, isCurrent, isMe,
         }}>
           {player.name.charAt(0)}
         </div>
+        {isMe && (
+          <span style={{
+            fontSize: 10,
+            color: '#8bc8ff',
+            background: 'rgba(74,144,217,0.2)',
+            padding: '1px 5px',
+            borderRadius: 4,
+            fontWeight: 600,
+          }}>自己</span>
+        )}
         {isPartner && (
           <span style={{
             fontSize: 10,

@@ -246,6 +246,19 @@ export default function GameRoom() {
           ) : null;
         })}
 
+        {/* Bottom-left — myself */}
+        <div className="self-player-seat">
+          {getPlayerForPosition(0) && (
+            <PlayerInfoComponent
+              player={getPlayerForPosition(0)!}
+              position="bottom"
+              isCurrent={gameState?.currentPlayerIndex === mySeatIndex}
+              isMe
+              isPartner={false}
+            />
+          )}
+        </div>
+
         {/* Center - play area */}
         <div style={styles.centerArea}>
           {waiting ? (

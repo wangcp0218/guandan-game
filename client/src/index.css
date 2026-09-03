@@ -258,6 +258,13 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   pointer-events: none;
 }
 
+.self-player-seat {
+  position: absolute;
+  left: 20px;
+  bottom: 12px;
+  z-index: 30;
+}
+
 @media (max-width: 900px), (max-height: 650px) {
   .seat-action-cards {
     transform: scale(.86);
@@ -266,6 +273,13 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 
   .seat-action-pass {
     font-size: 24px;
+  }
+
+  .self-player-seat {
+    left: 10px;
+    bottom: 8px;
+    transform: scale(.72);
+    transform-origin: left bottom;
   }
 }
 
@@ -291,6 +305,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
     --hand-stack-rise: 25px;
     --hand-column-step: 48px;
     --hand-column-min: 30px;
+    padding-left: 120px;
     justify-content: flex-start;
     overflow-x: auto;
     overflow-y: visible;

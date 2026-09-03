@@ -7,6 +7,7 @@ import {
 } from './patterns';
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
+import type { AiDecisionContext } from './llmAi';
 
 function getRankCounts(hand: Card[]): Map<number, Card[]> {
   const map = new Map<number, Card[]>();
@@ -153,6 +154,20 @@ export function generateLegalPlays(
   return patterns;
 }
 
+function dedupeStrategicPlays(plays: CardPattern[]): CardPattern[] {
+  const seen = new Set<string>();
+  return plays.filter(play => {
+    const cards = play.cards
+      .map(card => `${card.suit}${card.rank}`)
+      .sort()
+      .join(',');
+    const key = `${play.type}:${play.rank}:${play.length}:${cards}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function findBestPlay(
   hand: Card[],
   lastPattern: CardPattern | null,
@@ -232,12 +247,25 @@ export async function findSmartPlay(
   hand: Card[],
   lastPattern: CardPattern | null,
   isFreePlay: boolean,
-  currentLevel: number
+  currentLevel: number,
+  context?: AiDecisionContext,
 ): Promise<CardPattern | null> {
   const ruleResult = findBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+  let legalPlays = generateLegalPlays(hand, currentLevel);
+  if (!isFreePlay && lastPattern) {
+    legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
+  }
+  legalPlays = dedupeStrategicPlays(legalPlays);
 
   try {
-    const llmResult = await llmFindBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+    const llmResult = await llmFindBestPlay(
+      hand,
+      legalPlays,
+      lastPattern,
+      isFreePlay,
+      currentLevel,
+      context,
+    );
     // undefined means the model was unavailable/invalid; null is an intentional pass.
     if (llmResult !== undefined) return llmResult;
   } catch {}

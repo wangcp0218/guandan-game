@@ -8,6 +8,7 @@ import { identifyPattern, isValidPlay } from '../engine/patterns';
 import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
 import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectReturnTributeCard } from '../engine/rules';
 import { findBestPlay, findBestTribute, findSmartPlay } from '../engine/ai';
+import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
 
 const MAX_PLAYERS = 4;
 const TURN_TIMEOUT = 30000;
@@ -22,6 +23,7 @@ export class GameRoom {
   rankings: { playerId: string; rank: number }[] = [];
   currentLevel: number = Rank.Two;
   turnTimer: ReturnType<typeof setTimeout> | null = null;
+  recentActions: AiRecentAction[] = [];
   roundNumber: number = 0;
   aiCount: number = 0;
 
@@ -78,6 +80,7 @@ export class GameRoom {
     this.players = [];
     this.hands.clear();
     this.rankings = [];
+    this.recentActions = [];
     if (this.turnTimer) {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
@@ -119,6 +122,7 @@ export class GameRoom {
     const dealt = dealCards(deck, MAX_PLAYERS);
     this.hands.clear();
     this.rankings = [];
+    this.recentActions = [];
 
     for (let i = 0; i < MAX_PLAYERS; i++) {
       const player = this.players[i];
@@ -250,6 +254,11 @@ export class GameRoom {
     this.state.lastPlay = pattern;
     this.state.lastPlayPlayerIndex = playerIdx;
     this.state.passCount = 0;
+    this.recordAiAction({
+      seatIndex: playerIdx,
+      action: 'play',
+      pattern,
+    });
 
     this.updatePlayerCardCount();
     this.broadcastEvent('player_played', {
@@ -264,19 +273,22 @@ export class GameRoom {
       this.rankings.push({ playerId, rank });
       this.broadcastEvent('player_finish', { playerId, playerName: this.players[playerIdx].name, rank });
 
-      if (rank === 1 && this.rankings.length < MAX_PLAYERS) {
-        this.state.passCount = 3;
-      }
-
-      if (this.rankings.length >= MAX_PLAYERS - 1) {
+      if (this.rankings.length >= MAX_PLAYERS) {
         this.endRound();
         return { success: true };
       }
 
+      // A finished player cannot take another turn, so the next active player leads freely.
+      this.clearCurrentTrick();
       this.advanceTurn();
       this.broadcastState();
       this.startTurn();
       return { success: true };
+    }
+
+    // Let the final remaining player play out every card without beating their own last play.
+    if (this.getActivePlayerCount() === 1) {
+      this.clearCurrentTrick();
     }
 
     this.advanceTurn();
@@ -294,16 +306,16 @@ export class GameRoom {
       return { success: false, error: '首轮必须出牌' };
     }
 
-    if (this.state.passCount >= 3) {
-      return { success: false, error: '自由出牌阶段不能再过' };
-    }
-
     this.state.passCount++;
+    const playerIdx = this.players.findIndex(player => player.id === playerId);
+    this.recordAiAction({
+      seatIndex: playerIdx,
+      action: 'pass',
+    });
     this.broadcastEvent('player_pass', { playerId });
 
-    if (this.state.passCount >= 3) {
-      this.state.lastPlay = null;
-      this.state.lastPlayPlayerIndex = -1;
+    if (this.state.passCount >= this.getPassesNeededToClearTrick()) {
+      this.clearCurrentTrick();
     }
 
     this.advanceTurn();
@@ -319,6 +331,45 @@ export class GameRoom {
       next = (next + 1) % MAX_PLAYERS;
     }
     this.state.currentPlayerIndex = next;
+  }
+
+  private getActivePlayerCount(): number {
+    return MAX_PLAYERS - this.rankings.length;
+  }
+
+  private getPassesNeededToClearTrick(): number {
+    return Math.max(1, this.getActivePlayerCount() - 1);
+  }
+
+  private clearCurrentTrick() {
+    if (!this.state) return;
+    this.state.lastPlay = null;
+    this.state.lastPlayPlayerIndex = -1;
+    this.state.passCount = 0;
+  }
+
+  private recordAiAction(action: AiRecentAction) {
+    this.recentActions = [...this.recentActions.slice(-11), action];
+  }
+
+  private getAiDecisionContext(playerIdx: number): AiDecisionContext {
+    const partnerSeatIndex = (playerIdx + 2) % MAX_PLAYERS;
+    return {
+      selfSeatIndex: playerIdx,
+      partnerSeatIndex,
+      lastPlayPlayerIndex: this.state?.lastPlayPlayerIndex ?? -1,
+      players: this.players.map((player, seatIndex) => ({
+        seatIndex,
+        cardCount: this.hands.get(player.id)?.length || 0,
+        finishRank: this.rankings.find(item => item.playerId === player.id)?.rank || null,
+        relation: seatIndex === playerIdx
+          ? 'self'
+          : seatIndex === partnerSeatIndex
+            ? 'partner'
+            : 'opponent',
+      })),
+      recentActions: [...this.recentActions],
+    };
   }
 
   private endRound() {
@@ -373,6 +424,7 @@ export class GameRoom {
         this.state.lastPlay,
         isFreePlay,
         this.state.currentLevel,
+        this.getAiDecisionContext(playerIdx),
       );
 
       // Ignore a delayed model response if the round or active player changed.

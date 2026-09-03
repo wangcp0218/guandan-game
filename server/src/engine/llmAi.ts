@@ -1,11 +1,30 @@
-import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
-import { cardDisplayName, sortCards, effectiveRank } from './card';
-import { identifyPattern } from './patterns';
-import { canBeat, canFreePlay } from './compare';
+import { Card, CardPattern, PatternType } from '../../../shared/types';
+import { cardDisplayName, sortCards } from './card';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_MODEL = 'deepseek-v4-flash';
 const DEFAULT_TIMEOUT = 8000;
+
+export interface AiPlayerSnapshot {
+  seatIndex: number;
+  cardCount: number;
+  finishRank: number | null;
+  relation: 'self' | 'partner' | 'opponent';
+}
+
+export interface AiRecentAction {
+  seatIndex: number;
+  action: 'play' | 'pass';
+  pattern?: CardPattern;
+}
+
+export interface AiDecisionContext {
+  selfSeatIndex: number;
+  partnerSeatIndex: number;
+  lastPlayPlayerIndex: number;
+  players: AiPlayerSnapshot[];
+  recentActions: AiRecentAction[];
+}
 
 function getTimeoutMs(): number {
   const configured = Number(process.env.DEEPSEEK_TIMEOUT_MS);
@@ -13,60 +32,106 @@ function getTimeoutMs(): number {
 }
 
 function describeHand(cards: Card[], currentLevel: number): string {
-  const sorted = sortCards(cards, currentLevel);
-  const parts: string[] = [];
-  let i = 0;
-  while (i < sorted.length) {
-    let count = 1;
-    while (i + count < sorted.length && sorted[i + count].rank === sorted[i].rank) {
-      count++;
-    }
-    parts.push(`${cardDisplayName(sorted[i])}x${count}`);
-    i += count;
+  const counts = new Map<string, number>();
+  for (const card of sortCards(cards, currentLevel)) {
+    const name = `${cardDisplayName(card)}${card.rank === currentLevel && card.suit === 'H' ? '(逢人配)' : ''}`;
+    counts.set(name, (counts.get(name) || 0) + 1);
   }
-  return parts.join(' ');
+  return Array.from(counts, ([name, count]) => `${name}×${count}`).join(' ');
 }
 
 function describePattern(pattern: CardPattern | null): string {
   if (!pattern) return '无';
-  const cards = pattern.cards.map(c => cardDisplayName(c)).join(' ');
-  return `${pattern.type}(${cards}) 长度:${pattern.length}`;
+  const cards = pattern.cards.map(card => cardDisplayName(card)).join(' ');
+  return `${pattern.type}(${cards})，长度${pattern.length}`;
 }
 
-function handToCardIds(cards: Card[]): { id: number; display: string }[] {
-  return cards.map(c => ({ id: c.id, display: cardDisplayName(c) }));
+const PATTERN_NAMES: Record<PatternType, string> = {
+  [PatternType.Single]: '单张',
+  [PatternType.Pair]: '对子',
+  [PatternType.Triple]: '三张',
+  [PatternType.TriplePair]: '三带二',
+  [PatternType.Straight]: '顺子',
+  [PatternType.ConsecutivePair]: '连对',
+  [PatternType.Plane]: '钢板',
+  [PatternType.PlaneWings]: '飞机带翅膀',
+  [PatternType.Bomb4]: '四炸',
+  [PatternType.Bomb5]: '五炸',
+  [PatternType.Bomb6]: '六炸',
+  [PatternType.Bomb7]: '七炸',
+  [PatternType.Bomb8]: '八炸',
+  [PatternType.KingBomb]: '天王炸',
+  [PatternType.FlushStraight]: '同花顺',
+};
+
+function describeOptions(options: CardPattern[]): string {
+  return options.map((option, optionId) => JSON.stringify({
+    option_id: optionId,
+    type: PATTERN_NAMES[option.type],
+    cards: option.cards.map(card => cardDisplayName(card)),
+    rank: option.rank,
+    length: option.length,
+  })).join('\n');
 }
 
-export async function llmDecidePlay(
+function describePlayers(context?: AiDecisionContext): string {
+  if (!context) return '无额外玩家信息';
+  const relationNames = { self: '自己', partner: '队友', opponent: '对手' } as const;
+  return context.players.map(player => {
+    const finished = player.finishRank ? `，已获第${player.finishRank}名` : '';
+    return `座位${player.seatIndex}（${relationNames[player.relation]}）：剩${player.cardCount}张${finished}`;
+  }).join('\n');
+}
+
+function describeHistory(context?: AiDecisionContext): string {
+  if (!context || context.recentActions.length === 0) return '暂无';
+  return context.recentActions.map(item => item.action === 'pass'
+    ? `座位${item.seatIndex}：不出`
+    : `座位${item.seatIndex}：${describePattern(item.pattern || null)}`
+  ).join('\n');
+}
+
+export async function llmFindBestPlay(
   hand: Card[],
+  legalPlays: CardPattern[],
   lastPattern: CardPattern | null,
   isFreePlay: boolean,
-  currentLevel: number
-): Promise<Card[] | null> {
+  currentLevel: number,
+  context?: AiDecisionContext,
+): Promise<CardPattern | null | undefined> {
   const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey) return null;
+  if (!apiKey) return undefined;
+  if (legalPlays.length === 0) return isFreePlay ? undefined : null;
+
+  const systemPrompt = `你是四人掼蛋的高水平搭档型AI。你不需要判断牌型合法性，服务端已给出一组经过校验的候选方案，只能选择候选的option_id。
+你的目标是让自己与对家组成的队伍获得尽可能好的名次，而不是只顾自己最快出完。
+关键规则：红桃级牌是逢人配；大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹张数越多越大；天王炸最大。
+策略：优先帮助即将出完的队友；对手剩1至2张时主动封堵；非必要不拆炸弹、同花顺和整齐组合；能用普通牌压制就不用炸弹；自由出牌优先清理孤张或一次多出牌，但要结合队友与对手余牌。
+请简短权衡本轮局势，只输出JSON。`;
+
+  const lastPlayer = context && context.lastPlayPlayerIndex >= 0
+    ? `座位${context.lastPlayPlayerIndex}`
+    : '无';
+  const userPrompt = `当前是${currentLevel}级，自己座位${context?.selfSeatIndex ?? '未知'}，队友座位${context?.partnerSeatIndex ?? '未知'}。
+阶段：${isFreePlay ? '自由出牌，必须选择一个候选方案' : '跟牌，可以选择候选方案或不出'}。
+自己的手牌：${describeHand(hand, currentLevel)}
+上一手出牌者：${lastPlayer}
+上一手：${describePattern(lastPattern)}
+
+玩家状态：
+${describePlayers(context)}
+
+最近行动（由早到晚）：
+${describeHistory(context)}
+
+合法候选方案：
+${describeOptions(legalPlays)}
+
+返回格式：{"option_id":数字或null,"reason":"不超过40字的策略理由"}。只有跟牌且决定不出时option_id才可为null。`;
 
   try {
-    const handDesc = describeHand(hand, currentLevel);
-    const handCards = handToCardIds(hand);
-    const handJson = JSON.stringify(handCards);
-    const lastDesc = describePattern(lastPattern);
-
-    const systemPrompt = `你是掼蛋AI玩家。牌的大小：大王>小王>级牌(${currentLevel})>A>K>Q>J>10>9>8>7>6>5>4>3>2。
-牌型：单张、对子、三不带、三带二、顺子(≥5连)、连对(≥3连对)、钢板(≥2连三)、炸弹(4-8同点)。
-出牌规则：跟牌必须同类型同长度更大，或出炸弹。牌型不对或不够大就要"不出"。
-牌型强度：天王炸(4王)>普通炸弹(张多>张少，同张比点)>同花顺>普通牌型。`;
-
-    const userMessage = `级牌:${currentLevel}级 手牌:${handDesc}
-手牌JSON:${handJson}
-上家出牌:${lastDesc}
-${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
-
-返回JSON:{"card_ids":[牌id列表],"reason":"理由"}。不出则card_ids:[]。自由出牌优先小单张/小对子。`;
-
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs());
-
     let response: Response;
     try {
       response = await fetch(DEEPSEEK_API_URL, {
@@ -79,11 +144,11 @@ ${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
           model: process.env.DEEPSEEK_MODEL || DEFAULT_MODEL,
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
+            { role: 'user', content: userPrompt },
           ],
-          temperature: 0.3,
+          temperature: 0.25,
           thinking: { type: 'disabled' },
-          max_tokens: 512,
+          max_tokens: 256,
           response_format: { type: 'json_object' },
         }),
         signal: controller.signal,
@@ -94,49 +159,37 @@ ${isFreePlay ? '自由出牌' : '需跟牌或炸弹'}
 
     if (!response.ok) {
       console.error(`DeepSeek API error: ${response.status}`);
-      return null;
+      return undefined;
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
-    if (!content) return null;
-
+    if (!content) return undefined;
     const parsed = JSON.parse(content);
-    const cardIds: number[] = parsed.card_ids || [];
+    const optionId = parsed.option_id;
 
-    if (cardIds.length === 0) return [];
-    if (new Set(cardIds).size !== cardIds.length) return null;
-
-    const selectedCards = cardIds
-      .map(id => hand.find(c => c.id === id))
-      .filter(Boolean) as Card[];
-
-    if (selectedCards.length !== cardIds.length) return null;
-
-    const pattern = identifyPattern(selectedCards, currentLevel);
-    if (!pattern) return null;
-
-    if (!isFreePlay && lastPattern) {
-      if (!canBeat(pattern, lastPattern, currentLevel)) return null;
+    const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '未提供理由';
+    if (optionId === null) {
+      if (isFreePlay) {
+        console.warn('[LLM AI] rejected pass during free play; using rule-based AI');
+        return undefined;
+      }
+      console.log(`[LLM AI] pass; reason=${reason}`);
+      return null;
+    }
+    if (!Number.isInteger(optionId) || optionId < 0 || optionId >= legalPlays.length) {
+      console.warn(`[LLM AI] invalid option=${String(optionId)}; using rule-based AI`);
+      return undefined;
     }
 
-    return selectedCards;
-  } catch (e: any) {
-    if (e.name === 'AbortError') {
+    console.log(`[LLM AI] option=${optionId}; reason=${reason}`);
+    return legalPlays[optionId];
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
       console.log('DeepSeek API timeout, using rule-based AI');
+    } else {
+      console.warn(`[LLM AI] request/response error: ${error?.message || 'unknown error'}`);
     }
-    return null;
+    return undefined;
   }
-}
-
-export async function llmFindBestPlay(
-  hand: Card[],
-  lastPattern: CardPattern | null,
-  isFreePlay: boolean,
-  currentLevel: number
-): Promise<CardPattern | null | undefined> {
-  const llmCards = await llmDecidePlay(hand, lastPattern, isFreePlay, currentLevel);
-  if (llmCards === null) return undefined;
-  if (llmCards.length === 0) return null;
-  return identifyPattern(llmCards, currentLevel) || undefined;
 }
