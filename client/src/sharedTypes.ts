@@ -73,6 +73,13 @@ export interface PlayerInfo {
   isOnline: boolean;
 }
 
+export type AiProvider = 'deepseek' | 'local';
+
+export interface AiModelSelection {
+  provider: AiProvider;
+  model: string;
+}
+
 export interface RoomInfo {
   id: string;
   name: string;
@@ -81,6 +88,8 @@ export interface RoomInfo {
   level: number;
   hasPassword: boolean;
   aiCount: number;
+  aiProvider: AiProvider;
+  aiModel: string;
 }
 
 export interface GameState {

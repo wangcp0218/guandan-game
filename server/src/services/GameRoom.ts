@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   Card, GamePhase, GameState, PlayerInfo, CardPattern, PatternType,
-  RoundResult, Rank, Suit, ChatMessage,
+  RoundResult, Rank, Suit, ChatMessage, AiModelSelection,
 } from '../../../shared/types';
 import { createDeck, shuffleDeck, dealCards, sortCards, isJoker } from '../engine/card';
 import { identifyPattern, isValidPlay } from '../engine/patterns';
@@ -9,6 +9,7 @@ import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
 import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectReturnTributeCard } from '../engine/rules';
 import { findBestPlay, findBestTribute, findSmartPlay } from '../engine/ai';
 import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
+import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 
 const MAX_PLAYERS = 4;
 const TURN_TIMEOUT = 30000;
@@ -26,12 +27,19 @@ export class GameRoom {
   recentActions: AiRecentAction[] = [];
   roundNumber: number = 0;
   aiCount: number = 0;
+  aiModelSelection: AiModelSelection;
 
-  constructor(name: string, password: string = '', aiCount: number = 0) {
+  constructor(
+    name: string,
+    password: string = '',
+    aiCount: number = 0,
+    aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
+  ) {
     this.id = uuidv4();
     this.name = name;
     this.password = password;
     this.aiCount = aiCount;
+    this.aiModelSelection = aiModelSelection;
   }
 
   addPlayer(id: string, name: string, level: number, socket: any, isAI: boolean = false): number {
@@ -425,6 +433,7 @@ export class GameRoom {
         isFreePlay,
         this.state.currentLevel,
         this.getAiDecisionContext(playerIdx),
+        this.aiModelSelection,
       );
 
       // Ignore a delayed model response if the round or active player changed.
@@ -530,6 +539,8 @@ export class GameRoom {
       level: this.currentLevel,
       hasPassword: !!this.password,
       aiCount: this.aiCount + this.players.filter(p => p.isAI).length,
+      aiProvider: this.aiModelSelection.provider,
+      aiModel: this.aiModelSelection.model,
     };
   }
 }

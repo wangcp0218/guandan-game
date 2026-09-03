@@ -1,4 +1,4 @@
-import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
+import { AiModelSelection, Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import { effectiveRank, sortCards, isJoker } from './card';
 import {
   identifyPattern, isBomb, isKingBomb, isFlushStraight,
@@ -306,6 +306,7 @@ export async function findSmartPlay(
   isFreePlay: boolean,
   currentLevel: number,
   context?: AiDecisionContext,
+  selection?: AiModelSelection,
 ): Promise<CardPattern | null> {
   const ruleResult = findBestPlay(hand, lastPattern, isFreePlay, currentLevel);
   let legalPlays = generateLegalPlays(hand, currentLevel);
@@ -329,6 +330,7 @@ export async function findSmartPlay(
       isFreePlay,
       currentLevel,
       context,
+      selection,
     );
     // undefined means the model was unavailable/invalid; null is an intentional pass.
     if (llmResult !== undefined) return llmResult;

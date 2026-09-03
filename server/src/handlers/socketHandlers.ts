@@ -5,6 +5,8 @@ import bcrypt from 'bcryptjs';
 import { RoomManager } from '../services/RoomManager';
 import { GameRoom } from '../services/GameRoom';
 import { createUser, findUserByUsername, findUserById, saveGameRecord } from '../db/database';
+import { fetchAvailableAiModels, normalizeAiSelection } from '../engine/llmAi';
+import type { AiProvider } from '../../../shared/types';
 
 const JWT_SECRET = 'oowsp-game-server-secret-2024';
 const roomManager = new RoomManager();
@@ -70,12 +72,42 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    socket.on('create_room', (data: { name: string; password?: string; aiCount?: number }) => {
+    socket.on('get_ai_models', async (data: { provider?: AiProvider; requestId?: number }) => {
+      const provider: AiProvider = data.provider === 'local' ? 'local' : 'deepseek';
+      if (!socket.userId) {
+        socket.emit('ai_models_result', {
+          provider,
+          requestId: data.requestId,
+          models: [],
+          error: '请先登录',
+        });
+        return;
+      }
+      try {
+        const models = await fetchAvailableAiModels(provider);
+        socket.emit('ai_models_result', { provider, requestId: data.requestId, models });
+      } catch (error: any) {
+        console.warn(`[AI models] ${provider}: ${error?.message || 'request failed'}`);
+        socket.emit('ai_models_result', {
+          provider,
+          requestId: data.requestId,
+          models: [],
+          error: '无法获取模型列表，请检查服务配置',
+        });
+      }
+    });
+
+    socket.on('create_room', (data: { name: string; password?: string; aiCount?: number; aiProvider?: AiProvider; aiModel?: string }) => {
       if (!socket.userId) {
         socket.emit('error', { message: '请先登录' });
         return;
       }
-      const room = roomManager.createRoom(data.name, data.password || '', data.aiCount || 0);
+      const aiModelSelection = normalizeAiSelection(data.aiProvider, data.aiModel);
+      if ((data.aiCount || 0) > 0 && !aiModelSelection.model) {
+        socket.emit('error', { message: '请选择 AI 模型' });
+        return;
+      }
+      const room = roomManager.createRoom(data.name, data.password || '', data.aiCount || 0, aiModelSelection);
       socket.emit('room_created', room.toRoomInfo());
       socket.emit('room_list', roomManager.getRoomList());
     });

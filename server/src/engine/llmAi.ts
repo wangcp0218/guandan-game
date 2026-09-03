@@ -1,9 +1,19 @@
-import { Card, CardPattern, PatternType } from '../../../shared/types';
+import { AiModelSelection, AiProvider, Card, CardPattern, PatternType } from '../../../shared/types';
 import { cardDisplayName, sortCards } from './card';
 
-const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
-const DEFAULT_MODEL = 'deepseek-v4-flash';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const LOCAL_BASE_URL = 'http://192.168.150.51:3000/v1';
+export const DEFAULT_AI_SELECTION: AiModelSelection = {
+  provider: 'deepseek',
+  model: 'deepseek-v4-flash',
+};
 const DEFAULT_TIMEOUT = 8000;
+const DEFAULT_LOCAL_TIMEOUT = 20000;
+
+interface ProviderConfig {
+  baseUrl: string;
+  apiKey: string;
+}
 
 export interface AiPlayerSnapshot {
   seatIndex: number;
@@ -26,9 +36,66 @@ export interface AiDecisionContext {
   recentActions: AiRecentAction[];
 }
 
-function getTimeoutMs(): number {
-  const configured = Number(process.env.DEEPSEEK_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_TIMEOUT;
+function getTimeoutMs(provider: AiProvider): number {
+  const configured = Number(provider === 'local'
+    ? process.env.LOCAL_LLM_TIMEOUT_MS || process.env.LLM_TIMEOUT_MS
+    : process.env.DEEPSEEK_TIMEOUT_MS || process.env.LLM_TIMEOUT_MS
+  );
+  const fallback = provider === 'local' ? DEFAULT_LOCAL_TIMEOUT : DEFAULT_TIMEOUT;
+  return Number.isFinite(configured) && configured > 0 ? configured : fallback;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function getProviderConfig(provider: AiProvider): ProviderConfig {
+  if (provider === 'local') {
+    return {
+      baseUrl: trimTrailingSlash(process.env.LOCAL_LLM_BASE_URL || LOCAL_BASE_URL),
+      apiKey: process.env.LOCAL_LLM_API_KEY || '',
+    };
+  }
+  return {
+    baseUrl: trimTrailingSlash(process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL),
+    apiKey: process.env.DEEPSEEK_API_KEY || '',
+  };
+}
+
+export function normalizeAiSelection(
+  provider: unknown,
+  model: unknown,
+): AiModelSelection {
+  const normalizedProvider: AiProvider = provider === 'local' ? 'local' : 'deepseek';
+  const normalizedModel = typeof model === 'string' && /^[\w./:-]{1,120}$/.test(model.trim())
+    ? model.trim()
+    : normalizedProvider === 'deepseek'
+      ? (process.env.DEEPSEEK_MODEL || DEFAULT_AI_SELECTION.model)
+      : '';
+  return { provider: normalizedProvider, model: normalizedModel };
+}
+
+export async function fetchAvailableAiModels(provider: AiProvider): Promise<string[]> {
+  const config = getProviderConfig(provider);
+  if (!config.apiKey) throw new Error(`${provider} API key is not configured`);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs(provider));
+  try {
+    const response = await fetch(`${config.baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`${provider} models API returned ${response.status}`);
+    const data: any = await response.json();
+    const models = Array.isArray(data.data) ? data.data : Array.isArray(data.models) ? data.models : [];
+    const modelIds: string[] = models
+      .map((item: any) => typeof item === 'string' ? item : item?.id || item?.name)
+      .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+    return Array.from(new Set<string>(modelIds)).sort((a, b) => a.localeCompare(b));
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function describeHand(cards: Card[], currentLevel: number): string {
@@ -91,6 +158,19 @@ function describeHistory(context?: AiDecisionContext): string {
   ).join('\n');
 }
 
+function parseModelResponse(content: string): any {
+  try {
+    return JSON.parse(content);
+  } catch {}
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
+  if (fenced) {
+    try { return JSON.parse(fenced.trim()); } catch {}
+  }
+  const objectText = content.match(/\{[\s\S]*\}/)?.[0];
+  if (objectText) return JSON.parse(objectText);
+  throw new Error('model response did not contain valid JSON');
+}
+
 export async function llmFindBestPlay(
   hand: Card[],
   legalPlays: CardPattern[],
@@ -98,9 +178,11 @@ export async function llmFindBestPlay(
   isFreePlay: boolean,
   currentLevel: number,
   context?: AiDecisionContext,
+  selection: AiModelSelection = DEFAULT_AI_SELECTION,
 ): Promise<CardPattern | null | undefined> {
-  const apiKey = process.env.DEEPSEEK_API_KEY || '';
-  if (!apiKey) return undefined;
+  const normalizedSelection = normalizeAiSelection(selection.provider, selection.model);
+  const providerConfig = getProviderConfig(normalizedSelection.provider);
+  if (!providerConfig.apiKey || !normalizedSelection.model) return undefined;
   if (legalPlays.length === 0) return isFreePlay ? undefined : null;
 
   const systemPrompt = `你是四人掼蛋的高水平搭档型AI。你不需要判断牌型合法性，服务端已给出一组经过校验的候选方案，只能选择候选的option_id。
@@ -135,26 +217,29 @@ ${describeOptions(legalPlays)}
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs());
+    const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs(normalizedSelection.provider));
     let response: Response;
     try {
-      response = await fetch(DEEPSEEK_API_URL, {
+      const requestBody: Record<string, unknown> = {
+        model: normalizedSelection.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.25,
+        max_tokens: 256,
+      };
+      if (normalizedSelection.provider === 'deepseek') {
+        requestBody.thinking = { type: 'disabled' };
+        requestBody.response_format = { type: 'json_object' };
+      }
+      response = await fetch(`${providerConfig.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${providerConfig.apiKey}`,
         },
-        body: JSON.stringify({
-          model: process.env.DEEPSEEK_MODEL || DEFAULT_MODEL,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
-          temperature: 0.25,
-          thinking: { type: 'disabled' },
-          max_tokens: 256,
-          response_format: { type: 'json_object' },
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
     } finally {
@@ -162,35 +247,35 @@ ${describeOptions(legalPlays)}
     }
 
     if (!response.ok) {
-      console.error(`DeepSeek API error: ${response.status}`);
+      console.error(`[LLM AI] ${normalizedSelection.provider}/${normalizedSelection.model} API error: ${response.status}`);
       return undefined;
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) return undefined;
-    const parsed = JSON.parse(content);
+    const parsed = parseModelResponse(content);
     const optionId = parsed.option_id;
 
     const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '未提供理由';
     if (optionId === null) {
       if (isFreePlay) {
-        console.warn('[LLM AI] rejected pass during free play; using rule-based AI');
+        console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] rejected pass during free play; using rule-based AI`);
         return undefined;
       }
-      console.log(`[LLM AI] pass; reason=${reason}`);
+      console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] pass; reason=${reason}`);
       return null;
     }
     if (!Number.isInteger(optionId) || optionId < 0 || optionId >= legalPlays.length) {
-      console.warn(`[LLM AI] invalid option=${String(optionId)}; using rule-based AI`);
+      console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] invalid option=${String(optionId)}; using rule-based AI`);
       return undefined;
     }
 
-    console.log(`[LLM AI] option=${optionId}; reason=${reason}`);
+    console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] option=${optionId}; reason=${reason}`);
     return legalPlays[optionId];
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.log('DeepSeek API timeout, using rule-based AI');
+      console.log(`[LLM AI] ${normalizedSelection.provider}/${normalizedSelection.model} timeout, using rule-based AI`);
     } else {
       console.warn(`[LLM AI] request/response error: ${error?.message || 'unknown error'}`);
     }

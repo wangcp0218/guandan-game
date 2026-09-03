@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
-import { RoomInfo } from '../sharedTypes';
+import { AiProvider, RoomInfo } from '../sharedTypes';
 
 export default function Lobby() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
@@ -13,6 +13,12 @@ export default function Lobby() {
   const [joinPass, setJoinPass] = useState('');
   const [info, setInfo] = useState('');
   const [aiCount, setAiCount] = useState(0);
+  const [aiProvider, setAiProvider] = useState<AiProvider>('deepseek');
+  const [aiModel, setAiModel] = useState('deepseek-v4-flash');
+  const [aiModels, setAiModels] = useState<string[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState('');
+  const modelRequestId = useRef(0);
   const navigate = useNavigate();
   const { username, isLoggedIn, token, logout } = useAuthStore();
   const { reset } = useGameStore();
@@ -51,21 +57,70 @@ export default function Lobby() {
     };
     socket.on('room_created', onRoomCreated);
 
+    const onAiModelsResult = (data: {
+      provider: AiProvider;
+      requestId?: number;
+      models: string[];
+      error?: string;
+    }) => {
+      if (data.requestId !== modelRequestId.current) return;
+      setModelsLoading(false);
+      setModelsError(data.error || '');
+      setAiModels(data.models);
+      if (data.models.length > 0) {
+        const preferred = data.provider === 'deepseek'
+          ? 'deepseek-v4-flash'
+          : 'deepseek-v4-flash-0731';
+        setAiModel(current => data.models.includes(current)
+          ? current
+          : data.models.includes(preferred) ? preferred : data.models[0]
+        );
+      } else {
+        setAiModel('');
+      }
+    };
+    socket.on('ai_models_result', onAiModelsResult);
+
     return () => {
       socket.off('room_list', onRoomList);
       socket.off('room_joined', onRoomJoined);
       socket.off('error', onError);
       socket.off('room_created', onRoomCreated);
+      socket.off('ai_models_result', onAiModelsResult);
     };
   }, []);
+
+  const loadAiModels = (provider: AiProvider) => {
+    const requestId = ++modelRequestId.current;
+    setModelsLoading(true);
+    setModelsError('');
+    setAiModels([]);
+    getSocket()?.emit('get_ai_models', { provider, requestId });
+  };
+
+  const openCreateRoom = () => {
+    setShowCreate(true);
+    setInfo('');
+    loadAiModels(aiProvider);
+  };
 
   const createRoom = () => {
     if (!roomName.trim()) {
       setInfo('请输入房间名称');
       return;
     }
+    if (aiCount > 0 && !aiModel) {
+      setInfo('请先选择 AI 模型');
+      return;
+    }
     const socket = getSocket();
-    socket?.emit('create_room', { name: roomName, password: roomPass, aiCount });
+    socket?.emit('create_room', {
+      name: roomName,
+      password: roomPass,
+      aiCount,
+      aiProvider,
+      aiModel,
+    });
   };
 
   const joinRoom = (roomId: string) => {
@@ -106,7 +161,7 @@ export default function Lobby() {
 
       <div style={styles.content}>
         <div style={styles.left}>
-          <button className="btn-primary" style={styles.createBtn} onClick={() => setShowCreate(true)}>
+          <button className="btn-primary" style={styles.createBtn} onClick={openCreateRoom}>
             + 创建房间
           </button>
 
@@ -151,6 +206,41 @@ export default function Lobby() {
                     </button>
                   ))}
                 </div>
+                <label style={styles.fieldLabel}>
+                  <span>模型提供商</span>
+                  <select
+                    value={aiProvider}
+                    onChange={(e) => {
+                      const provider = e.target.value as AiProvider;
+                      setAiProvider(provider);
+                      setAiModel('');
+                      loadAiModels(provider);
+                    }}
+                    style={styles.select}
+                  >
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="local">Local (192.168.150.51)</option>
+                  </select>
+                </label>
+                <label style={styles.fieldLabel}>
+                  <span>模型</span>
+                  <select
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    style={styles.select}
+                    disabled={modelsLoading || aiModels.length === 0}
+                  >
+                    {modelsLoading && <option value="">正在获取模型...</option>}
+                    {!modelsLoading && aiModels.length === 0 && <option value="">暂无可用模型</option>}
+                    {aiModels.map(model => <option key={model} value={model}>{model}</option>)}
+                  </select>
+                </label>
+                {modelsError && (
+                  <div style={styles.modelError}>
+                    <span>{modelsError}</span>
+                    <button type="button" className="btn-secondary" onClick={() => loadAiModels(aiProvider)}>重试</button>
+                  </div>
+                )}
                 {info && <p style={styles.error}>{info}</p>}
                 <div style={styles.modalBtns}>
                   <button className="btn-primary" onClick={createRoom}>创建</button>
@@ -191,7 +281,7 @@ export default function Lobby() {
                 <div style={styles.roomInfo}>
                   <span style={styles.roomName}>{room.name}</span>
                   <span style={styles.roomMeta}>
-                    {room.hasPassword ? '🔒 ' : ''}等级{room.level} | {room.playerCount}人/{room.maxPlayers}人{room.aiCount > 0 ? ` | AIx${room.aiCount}` : ''}
+                    {room.hasPassword ? '🔒 ' : ''}等级{room.level} | {room.playerCount}人/{room.maxPlayers}人{room.aiCount > 0 ? ` | AIx${room.aiCount} | ${room.aiProvider}/${room.aiModel}` : ''}
                   </span>
                 </div>
                 <button
@@ -276,7 +366,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: '#1a4a2e',
     borderRadius: 14,
     padding: 24,
-    width: 320,
+    width: 380,
     display: 'flex',
     flexDirection: 'column',
     gap: 12,
@@ -284,6 +374,31 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: '100%',
+  },
+  fieldLabel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.65)',
+  },
+  select: {
+    width: '100%',
+    padding: '9px 10px',
+    border: '1px solid rgba(255,255,255,0.3)',
+    borderRadius: 6,
+    background: '#285c42',
+    color: '#fff',
+    fontSize: 13,
+    outline: 'none',
+  },
+  modelError: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    color: '#ff9b9b',
+    fontSize: 12,
   },
   modalBtns: {
     display: 'flex',

@@ -1,11 +1,17 @@
 import { GameRoom } from './GameRoom';
-import { RoomInfo } from '../../../shared/types';
+import { AiModelSelection, RoomInfo } from '../../../shared/types';
+import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 
 export class RoomManager {
   private rooms: Map<string, GameRoom> = new Map();
 
-  createRoom(name: string, password: string = '', aiCount: number = 0): GameRoom {
-    const room = new GameRoom(name, password, aiCount);
+  createRoom(
+    name: string,
+    password: string = '',
+    aiCount: number = 0,
+    aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
+  ): GameRoom {
+    const room = new GameRoom(name, password, aiCount, aiModelSelection);
     this.rooms.set(room.id, room);
     return room;
   }
