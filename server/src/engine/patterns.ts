@@ -61,9 +61,9 @@ export function isStraight(cards: Card[]): boolean {
 }
 
 export function isConsecutivePair(cards: Card[]): boolean {
-  if (cards.length < 6 || cards.length % 2 !== 0) return false;
-  const pairCount = cards.length / 2;
-  if (pairCount < 3) return false;
+  // 掼蛋的连对固定为三连对：三个连续对子，共 6 张。
+  if (cards.length !== 6) return false;
+  const pairCount = 3;
 
   if (cards.some(isJoker)) return false;
 
@@ -225,9 +225,9 @@ function tryConsecutivePairWithWilds(
   totalLength: number,
   currentLevel: number
 ): CardPattern | null {
-  if (totalLength < 6 || totalLength % 2 !== 0) return null;
-  const pairCount = totalLength / 2;
-  if (pairCount < 3) return null;
+  // 逢人配只能补成固定 6 张的三连对，不能扩展成四连对或更长。
+  if (totalLength !== 6) return null;
+  const pairCount = 3;
 
   for (const c of regulars) {
     if (isJoker(c)) return null;

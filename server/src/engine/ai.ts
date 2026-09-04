@@ -86,7 +86,7 @@ function generateStraights(hand: Card[]): Card[][] {
 
 function generateConsecutivePairs(rankCounts: Map<number, Card[]>): Card[][] {
   const result: Card[][] = [];
-  for (const run of buildRankRuns(3)) {
+  for (const run of buildRankRuns(3).filter(candidate => candidate.length === 3)) {
     if (run.every(rank => (rankCounts.get(rank)?.length || 0) >= 2)) {
       result.push(run.flatMap(rank => rankCounts.get(rank)!.slice(0, 2)));
     }
