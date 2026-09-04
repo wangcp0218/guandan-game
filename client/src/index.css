@@ -563,53 +563,53 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .game-action-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  display: flex;
   align-items: center;
-  column-gap: 12px;
-  row-gap: 5px;
+  justify-content: center;
   margin-bottom: 18px;
 }
 
 .game-turn-status {
-  grid-column: 2;
-  grid-row: 2;
+  position: absolute;
+  top: clamp(84px, 9vh, 104px);
+  left: clamp(14px, 2.2vw, 30px);
+  z-index: 32;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 3px;
   min-width: 0;
   min-height: 24px;
   width: fit-content;
-  margin: 0 auto;
-  padding: 3px 12px;
+  padding: 5px 10px;
   border: 1px solid rgba(255,255,255,.12);
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(3, 35, 21, .7);
   box-shadow: 0 2px 8px rgba(0,0,0,.18);
-  position: relative;
-  z-index: 32;
+  color: rgba(255,255,255,.72);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .game-turn-status.is-my-turn {
   border-color: rgba(255, 212, 59, .52);
   background: rgba(111, 82, 7, .56);
   box-shadow: 0 0 12px rgba(255, 204, 39, .16);
+  color: #ffd43b;
+}
+
+.game-turn-error {
+  color: #ff7b7b;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .game-play-actions {
-  grid-column: 2;
-  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-}
-
-.game-action-spacer {
-  display: none;
-  min-width: 0;
 }
 
 @media (max-width: 900px), (max-height: 650px) {
@@ -652,6 +652,11 @@ input::placeholder { color: rgba(255,255,255,0.5); }
     width: min(56vw, 420px);
     height: clamp(132px, 24vh, 175px);
   }
+
+  .game-turn-status {
+    top: 78px;
+    left: 12px;
+  }
 }
 
 @media (max-height: 720px) {
@@ -675,8 +680,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   }
 
   .game-action-bar {
-    grid-template-columns: 1fr;
-    gap: 6px;
+    justify-content: center;
   }
 
   .waiting-seat-setup {
@@ -690,21 +694,6 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   .waiting-seat {
     min-height: 72px;
     padding: 8px;
-  }
-
-  .game-turn-status {
-    grid-column: 1;
-    grid-row: 2;
-    justify-content: center;
-  }
-
-  .game-play-actions {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .game-action-spacer {
-    display: none;
   }
 
   .hand-cards {

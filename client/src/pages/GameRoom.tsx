@@ -245,6 +245,12 @@ export default function GameRoom() {
           </div>
           <div className="duel-score-meta">第 {gameState?.roundNumber || 0} 局 · {isSpectator ? `队伍 ${leadingTeam === 0 ? 'A' : 'B'} 在台` : `${ownIsLeading ? '我方' : '对方'}在台`}</div>
         </div>
+        {!isSpectator && (
+          <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
+            <span>{isMyTurn ? '轮到你了!' : '等待中...'}</span>
+            {errorMsg && <span className="game-turn-error">{errorMsg}</span>}
+          </div>
+        )}
         <div className="room-exit-actions">
           <button
             className="btn-danger"
@@ -375,18 +381,6 @@ export default function GameRoom() {
         {/* Bottom - my hand cards */}
         {!isSpectator && <div style={styles.bottomArea}>
           <div className="game-action-bar">
-            <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
-              <span style={{
-                fontSize: 13,
-                color: isMyTurn ? '#ffd43b' : 'rgba(255,255,255,0.72)',
-                fontWeight: 800,
-              }}>
-                {isMyTurn ? '轮到你了!' : '等待中...'}
-              </span>
-              {errorMsg && (
-                <span style={{ color: '#ff6b6b', fontSize: 12 }}>{errorMsg}</span>
-              )}
-            </div>
             <div className="game-play-actions">
               <button
                 className="btn-primary"
@@ -429,7 +423,6 @@ export default function GameRoom() {
                 不出
               </button>
             </div>
-            <div className="game-action-spacer" aria-hidden="true" />
           </div>
           <HandCards
             cards={myCards}

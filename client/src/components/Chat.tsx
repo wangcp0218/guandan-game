@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage, SpectatorInfo } from '../sharedTypes';
 
 interface Props {
@@ -11,6 +11,12 @@ interface Props {
 
 export default function Chat({ messages, onSend, spectators = [], canManageSpectators = false, onKickSpectator }: Props) {
   const [input, setInput] = useState('');
+  const messageListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const messageList = messageListRef.current;
+    if (messageList) messageList.scrollTop = messageList.scrollHeight;
+  }, [messages.length]);
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -84,7 +90,7 @@ export default function Chat({ messages, onSend, spectators = [], canManageSpect
           ))}
         </div>
       )}
-      <div style={{
+      <div ref={messageListRef} style={{
         flex: 1,
         overflow: 'auto',
         padding: '8px',
