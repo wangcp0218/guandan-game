@@ -387,17 +387,26 @@ export default function GameRoom() {
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 }}>
                 胜方升 {roundResult.winnerLevelDelta} 级
               </p>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  setRoundResult(null);
-                  const socket = getSocket();
-                  socket?.emit('start_next_round', { roomId });
-                }}
-                style={{ padding: '10px 30px', fontSize: 15 }}
-              >
-                下一局
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                <button
+                  className="btn-primary"
+                  onClick={() => {
+                    setRoundResult(null);
+                    const socket = getSocket();
+                    socket?.emit('start_next_round', { roomId });
+                  }}
+                  style={{ padding: '10px 30px', fontSize: 15 }}
+                >
+                  下一局
+                </button>
+                <button
+                  className="btn-danger"
+                  onClick={handleLeaveRoom}
+                  style={{ padding: '10px 24px', fontSize: 15 }}
+                >
+                  退出房间
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -174,6 +174,7 @@ function applyStrategicGuards(
   plays: CardPattern[],
   hand: Card[],
   currentLevel: number,
+  isFreePlay: boolean,
   context?: AiDecisionContext,
 ): CardPattern[] {
   let guarded = plays;
@@ -189,6 +190,33 @@ function applyStrategicGuards(
     ) || false;
     if (withoutWildSingles.length > 0 || !opponentReportedSingle) {
       guarded = withoutWildSingles;
+    }
+  }
+
+  // A leading single should spend the least valuable ordinary card. Keeping the
+  // candidate set this way prevents an LLM from opening with a joker or level
+  // card while a normal single is still available.
+  if (isFreePlay && hand.length > 1) {
+    const ordinarySingles = guarded.filter(play =>
+      play.type === PatternType.Single
+      && !isJoker(play.cards[0])
+      && !isWildCard(play.cards[0], currentLevel)
+    );
+    if (ordinarySingles.length > 0) {
+      const rankCounts = getRankCounts(hand);
+      const loneSingles = ordinarySingles.filter(play =>
+        (rankCounts.get(play.cards[0].rank)?.length || 0) === 1
+      );
+      const preferredSingles = loneSingles.length > 0 ? loneSingles : ordinarySingles;
+      const lowestRank = Math.min(...preferredSingles.map(play =>
+        effectiveRank(play.cards[0].rank, currentLevel)
+      ));
+      const allowedSingleKeys = new Set(preferredSingles
+        .filter(play => effectiveRank(play.cards[0].rank, currentLevel) === lowestRank)
+        .map(strategicPlayKey));
+      guarded = guarded.filter(play =>
+        play.type !== PatternType.Single || allowedSingleKeys.has(strategicPlayKey(play))
+      );
     }
   }
 
@@ -239,13 +267,15 @@ export function findBestPlay(
 
   if (legalPlays.length === 0) return null;
 
-  const sorted = [...hand].sort((a, b) => a.rank - b.rank);
-
   if (isFreePlay || !lastPattern) {
-    const singles = legalPlays.filter(p => p.type === PatternType.Single && !isJoker(p.cards[0]));
+    const singles = legalPlays.filter(p =>
+      p.type === PatternType.Single
+      && !isJoker(p.cards[0])
+      && !isWildCard(p.cards[0], currentLevel)
+    );
     if (singles.length > 0) {
       const minSingle = singles.reduce((a, b) =>
-        a.cards[0].rank < b.cards[0].rank ? a : b
+        effectiveRank(a.cards[0].rank, currentLevel) < effectiveRank(b.cards[0].rank, currentLevel) ? a : b
       );
       return minSingle;
     }
@@ -314,7 +344,7 @@ export async function findSmartPlay(
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
-  legalPlays = applyStrategicGuards(legalPlays, hand, currentLevel, context);
+  legalPlays = applyStrategicGuards(legalPlays, hand, currentLevel, isFreePlay, context);
 
   const guardedRuleResult = ruleResult && legalPlays.some(play =>
     strategicPlayKey(play) === strategicPlayKey(ruleResult)

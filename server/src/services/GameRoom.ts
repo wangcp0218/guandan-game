@@ -453,10 +453,8 @@ export class GameRoom {
         if (this.state.lastPlay) {
           this.handlePass(player.id);
         } else {
-          const singles = hand.map(c => [c]).filter(p => identifyPattern(p, this.state!.currentLevel));
-          if (singles.length > 0) {
-            this.playCards(player.id, singles[0]);
-          }
+          const fallback = findBestPlay(hand, null, true, this.state.currentLevel);
+          if (fallback) this.playCards(player.id, fallback.cards);
         }
       }
     } catch (e) {
@@ -468,7 +466,10 @@ export class GameRoom {
         const player = this.players[this.state.currentPlayerIndex];
         const hand = this.hands.get(player?.id) || [];
         if (hand.length > 0) {
-          try { this.playCards(player.id, [hand[0]]); } catch {}
+          const fallback = findBestPlay(hand, null, true, this.state.currentLevel);
+          if (fallback) {
+            try { this.playCards(player.id, fallback.cards); } catch {}
+          }
         }
       }
     }
@@ -479,12 +480,9 @@ export class GameRoom {
     const player = this.players[this.state.currentPlayerIndex];
     if (!this.state.lastPlay) {
       const hand = this.hands.get(player.id) || [];
-      const singles = hand.map(c => [c]).filter(p => identifyPattern(p, this.state!.currentLevel));
-      if (singles.length > 0) {
-        this.playCards(player.id, singles[0]);
-      } else {
-        this.handlePass(player.id);
-      }
+      const fallback = findBestPlay(hand, null, true, this.state.currentLevel);
+      if (fallback) this.playCards(player.id, fallback.cards);
+      else this.handlePass(player.id);
     } else {
       this.handlePass(player.id);
     }
