@@ -1,5 +1,5 @@
 import { Card, Rank, Suit } from '../../../shared/types';
-import { isJoker } from './card';
+import { effectiveRank } from './card';
 
 export function getLevelDelta(partnerRank: number): number {
   if (partnerRank === 2) return 3;
@@ -7,54 +7,36 @@ export function getLevelDelta(partnerRank: number): number {
   return 1;
 }
 
-export function determineTribute(
-  teamARanks: { playerId: string; rank: number }[],
-  teamBRanks: { playerId: string; rank: number }[]
-): { tributeFrom: string; tributeTo: string } | null {
-  const teamAWin = teamARanks.some(r => r.rank === 1);
-  if (teamAWin) {
-    const lastPlace = teamBRanks.find(r => r.rank === 4)!;
-    const firstPlace = teamARanks.find(r => r.rank === 1)!;
-    return { tributeFrom: lastPlace.playerId, tributeTo: firstPlace.playerId };
-  }
-  const lastPlace = teamARanks.find(r => r.rank === 4)!;
-  const firstPlace = teamBRanks.find(r => r.rank === 1)!;
-  return { tributeFrom: lastPlace.playerId, tributeTo: firstPlace.playerId };
-}
-
-export function canResistTribute(hand: Card[], currentLevel: number): boolean {
+export function canResistTribute(hand: Card[]): boolean {
   const bigJokers = hand.filter(c => c.rank === Rank.BigJoker).length;
   return bigJokers >= 2;
 }
 
 export function selectTributeCard(hand: Card[], currentLevel: number): Card | null {
-  if (hand.length === 0) return null;
-
-  const bigJokers = hand.filter(c => c.rank === Rank.BigJoker);
-  if (bigJokers.length >= 2) return null;
-
-  let card = hand[0];
-  for (const c of hand) {
-    if (c.rank < card.rank) card = c;
-    else if (c.rank === card.rank) {
-      const suitOrder = [Suit.Club, Suit.Diamond, Suit.Spade, Suit.Heart];
-      if (suitOrder.indexOf(c.suit) < suitOrder.indexOf(card.suit)) card = c;
-    }
-  }
-  return card;
+  const eligible = hand.filter(card => !(card.rank === currentLevel && card.suit === Suit.Heart));
+  if (eligible.length === 0) return null;
+  return eligible.reduce((highest, card) =>
+    effectiveRank(card.rank, currentLevel) > effectiveRank(highest.rank, currentLevel) ? card : highest
+  );
 }
 
 export function selectReturnTributeCard(hand: Card[], currentLevel: number): Card | null {
-  if (hand.length === 0) return null;
-  let card = hand[0];
-  for (const c of hand) {
-    if (c.rank > card.rank && c.rank < Rank.SmallJoker) card = c;
-    else if (c.rank === card.rank) {
-      const suitOrder = [Suit.Diamond, Suit.Club, Suit.Spade, Suit.Heart];
-      if (suitOrder.indexOf(c.suit) < suitOrder.indexOf(card.suit)) card = c;
-    }
-  }
-  return card;
+  const eligible = hand.filter(card => isValidReturnTributeCard(card, currentLevel));
+  if (eligible.length === 0) return null;
+
+  // Prefer a low singleton so automatic returns do not needlessly split a pair or bomb.
+  const rankCounts = new Map<Rank, number>();
+  for (const card of hand) rankCounts.set(card.rank, (rankCounts.get(card.rank) || 0) + 1);
+  return eligible.reduce((best, card) => {
+    const bestBreaksGroup = (rankCounts.get(best.rank) || 0) > 1;
+    const cardBreaksGroup = (rankCounts.get(card.rank) || 0) > 1;
+    if (bestBreaksGroup !== cardBreaksGroup) return cardBreaksGroup ? best : card;
+    return effectiveRank(card.rank, currentLevel) < effectiveRank(best.rank, currentLevel) ? card : best;
+  });
+}
+
+export function isValidReturnTributeCard(card: Card, currentLevel: number): boolean {
+  return effectiveRank(card.rank, currentLevel) <= Rank.Ten;
 }
 
 export function getNextLevel(currentLevel: number, partnerRank: number): number {

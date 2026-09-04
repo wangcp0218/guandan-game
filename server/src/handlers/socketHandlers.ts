@@ -279,10 +279,19 @@ export function setupSocketHandlers(io: Server) {
     });
 
     socket.on('start_next_round', () => {
-      if (!socket.currentRoomId) return;
+      if (!socket.userId || !socket.currentRoomId) return;
       const room = roomManager.getRoom(socket.currentRoomId);
       if (!room) return;
-      room.startNextRound();
+      const result = room.startNextRound(socket.userId);
+      if (!result.success) socket.emit('error', { message: result.error });
+    });
+
+    socket.on('return_tribute', (data: { card?: any }) => {
+      if (!socket.userId || !socket.currentRoomId || !data.card) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      const result = room.returnTribute(socket.userId, data.card);
+      if (!result.success) socket.emit('error', { message: result.error });
     });
 
     socket.on('chat', (data: { content: string }) => {

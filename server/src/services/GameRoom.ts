@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   Card, GamePhase, GameState, PlayerInfo, CardPattern, PatternType,
-  RoundResult, Rank, Suit, ChatMessage, AiModelSelection, SpectatorInfo,
+  RoundResult, Rank, Suit, ChatMessage, AiModelSelection, SpectatorInfo, SpectatorHands, TributeExchange,
 } from '../../../shared/types';
-import { createDeck, shuffleDeck, dealCards, sortCards, isJoker } from '../engine/card';
+import { createDeck, shuffleDeck, dealCards, sortCards, isJoker, effectiveRank } from '../engine/card';
 import { identifyPattern, isValidPlay } from '../engine/patterns';
 import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
-import { getTeam, getLevelDelta, determineTribute, selectTributeCard, selectReturnTributeCard } from '../engine/rules';
-import { findBestPlay, findBestTribute, findSmartPlay } from '../engine/ai';
+import { getTeam, getLevelDelta, canResistTribute, selectTributeCard, selectReturnTributeCard, isValidReturnTributeCard } from '../engine/rules';
+import { findBestPlay, findSmartPlay } from '../engine/ai';
 import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
 import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 
@@ -201,6 +201,7 @@ export class GameRoom {
 
   startGame() {
     this.lockSeatsForGame();
+    const previousRankings = this.roundNumber > 0 ? [...this.rankings] : [];
     this.roundNumber++;
     const deck = shuffleDeck(createDeck());
     const dealt = dealCards(deck, MAX_PLAYERS);
@@ -237,12 +238,19 @@ export class GameRoom {
       tributeTo: null,
       tributeCard: null,
       returnTributeCards: null,
+      tributeExchanges: [],
+      tributeResisted: false,
+      tributeLeadPlayerId: null,
       redHeartIndex: -1,
       roundNumber: this.roundNumber,
     };
 
     this.emitHands();
-    this.startPlayingPhase();
+    if (previousRankings.length === MAX_PLAYERS) {
+      this.startTributePhase(previousRankings);
+    } else {
+      this.startPlayingPhase(0);
+    }
   }
 
   getHand(playerId: string): Card[] {
@@ -274,6 +282,9 @@ export class GameRoom {
       tributeTo: null,
       tributeCard: null,
       returnTributeCards: null,
+      tributeExchanges: [],
+      tributeResisted: false,
+      tributeLeadPlayerId: null,
       redHeartIndex: -1,
       roundNumber: this.roundNumber,
     };
@@ -288,11 +299,197 @@ export class GameRoom {
     if (orderedPlayers.length === MAX_PLAYERS) this.players = orderedPlayers;
   }
 
-  private startPlayingPhase() {
+  private startPlayingPhase(leadPlayerIndex: number = 0) {
     if (!this.state) return;
     this.state.phase = GamePhase.Playing;
+    this.state.currentPlayerIndex = leadPlayerIndex;
     this.broadcastState();
     this.startTurn();
+  }
+
+  private startTributePhase(previousRankings: { playerId: string; rank: number }[]) {
+    if (!this.state) return;
+    const first = previousRankings.find(item => item.rank === 1);
+    const second = previousRankings.find(item => item.rank === 2);
+    const third = previousRankings.find(item => item.rank === 3);
+    const last = previousRankings.find(item => item.rank === 4);
+    if (!first || !second || !third || !last) {
+      this.startPlayingPhase(0);
+      return;
+    }
+
+    const firstSeat = this.players.findIndex(player => player.id === first.playerId);
+    const firstTeam = getTeam(firstSeat);
+    const isDoubleDown = getTeam(this.players.findIndex(player => player.id === second.playerId)) === firstTeam;
+    const contributors = isDoubleDown ? [third, last] : [last];
+    const contributorHands = contributors.flatMap(item => this.hands.get(item.playerId) || []);
+
+    this.state.phase = GamePhase.Tribute;
+    this.state.tributeResisted = canResistTribute(contributorHands);
+    this.state.tributeLeadPlayerId = this.state.tributeResisted ? first.playerId : null;
+
+    if (this.state.tributeResisted) {
+      this.state.currentPlayerIndex = firstSeat;
+      this.broadcastEvent('tribute_resisted', {
+        playerIds: contributors.map(item => item.playerId),
+        leadPlayerId: first.playerId,
+      });
+      this.startPlayingPhase(firstSeat);
+      return;
+    }
+
+    const tributeCards = contributors.map(contributor => ({
+      contributor,
+      card: selectTributeCard(this.hands.get(contributor.playerId) || [], this.currentLevel),
+    }));
+    if (tributeCards.some(item => !item.card)) {
+      this.startPlayingPhase(firstSeat);
+      return;
+    }
+
+    let pairings: Array<{ fromPlayerId: string; toPlayerId: string; card: Card }>;
+    if (!isDoubleDown) {
+      pairings = [{ fromPlayerId: last.playerId, toPlayerId: first.playerId, card: tributeCards[0].card! }];
+    } else {
+      const [left, right] = tributeCards as [
+        { contributor: { playerId: string; rank: number }; card: Card },
+        { contributor: { playerId: string; rank: number }; card: Card },
+      ];
+      const leftRank = effectiveRank(left.card.rank, this.currentLevel);
+      const rightRank = effectiveRank(right.card.rank, this.currentLevel);
+      let larger = left;
+      let smaller = right;
+      if (rightRank > leftRank) {
+        larger = right;
+        smaller = left;
+      } else if (rightRank === leftRank) {
+        // When both tribute cards have the same point, the upper winner's next seat
+        // contributes to the upper winner; the other contributor goes to second place.
+        const preferredSeat = (firstSeat + 1) % MAX_PLAYERS;
+        if (this.players.findIndex(player => player.id === right.contributor.playerId) === preferredSeat) {
+          larger = right;
+          smaller = left;
+        }
+      }
+      pairings = [
+        { fromPlayerId: larger.contributor.playerId, toPlayerId: first.playerId, card: larger.card },
+        { fromPlayerId: smaller.contributor.playerId, toPlayerId: second.playerId, card: smaller.card },
+      ];
+    }
+
+    this.state.tributeLeadPlayerId = pairings[0].fromPlayerId;
+    this.state.tributeExchanges = pairings.map(pairing => ({
+      fromPlayerId: pairing.fromPlayerId,
+      toPlayerId: pairing.toPlayerId,
+      tributeCard: pairing.card,
+      returnCard: null,
+    }));
+    this.state.tributeTo = this.players.findIndex(player => player.id === pairings[0].toPlayerId);
+    this.state.tributeCard = pairings[0].card;
+
+    for (const exchange of this.state.tributeExchanges) {
+      this.transferCard(exchange.fromPlayerId, exchange.toPlayerId, exchange.tributeCard);
+    }
+    this.state.phase = GamePhase.ReturnTribute;
+    this.updatePlayerCardCount();
+    this.emitHands();
+    this.broadcastEvent('tribute_given', { exchanges: this.state.tributeExchanges });
+    this.advanceReturnTribute();
+  }
+
+  returnTribute(playerId: string, card: Card): { success: boolean; error?: string } {
+    if (!this.state || this.state.phase !== GamePhase.ReturnTribute) {
+      return { success: false, error: '当前不在还贡阶段' };
+    }
+    const exchange = this.state.tributeExchanges.find(item => item.returnCard === null);
+    if (!exchange || exchange.toPlayerId !== playerId) {
+      return { success: false, error: '还没有轮到你还贡' };
+    }
+    const hand = this.hands.get(playerId) || [];
+    const actualCard = hand.find(item => item.id === card?.id);
+    if (!actualCard) return { success: false, error: '手牌中没有这张牌' };
+    if (!isValidReturnTributeCard(actualCard, this.currentLevel)) {
+      return { success: false, error: '还贡只能选择牌点不超过10的牌，级牌不能还贡' };
+    }
+
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
+    this.finishReturnTribute(exchange, actualCard);
+    return { success: true };
+  }
+
+  private advanceReturnTribute() {
+    if (!this.state || this.state.phase !== GamePhase.ReturnTribute) return;
+    const exchange = this.state.tributeExchanges.find(item => item.returnCard === null);
+    if (!exchange) {
+      this.completeTribute();
+      return;
+    }
+
+    const recipientIndex = this.players.findIndex(player => player.id === exchange.toPlayerId);
+    const recipient = this.players[recipientIndex];
+    this.state.currentPlayerIndex = recipientIndex;
+    this.broadcastState();
+    if (recipient.isAI) {
+      setTimeout(() => this.autoReturnTribute(exchange), 350);
+    } else {
+      this.turnTimer = setTimeout(() => this.autoReturnTribute(exchange), TURN_TIMEOUT);
+    }
+  }
+
+  private autoReturnTribute(exchange: TributeExchange) {
+    if (!this.state || this.state.phase !== GamePhase.ReturnTribute || exchange.returnCard !== null) return;
+    const card = selectReturnTributeCard(this.hands.get(exchange.toPlayerId) || [], this.currentLevel);
+    if (!card) {
+      // A legal deck should always provide a return card. Fall back to the lowest
+      // non-joker card so an exceptionally distributed deck cannot deadlock a room.
+      const fallback = [...(this.hands.get(exchange.toPlayerId) || [])]
+        .filter(item => !isJoker(item))
+        .sort((a, b) => effectiveRank(a.rank, this.currentLevel) - effectiveRank(b.rank, this.currentLevel))[0];
+      if (!fallback) return;
+      this.finishReturnTribute(exchange, fallback);
+      return;
+    }
+    this.finishReturnTribute(exchange, card);
+  }
+
+  private finishReturnTribute(exchange: TributeExchange, card: Card) {
+    if (!this.state) return;
+    exchange.returnCard = card;
+    this.transferCard(exchange.toPlayerId, exchange.fromPlayerId, card);
+    this.state.returnTributeCards = this.state.tributeExchanges
+      .map(item => item.returnCard)
+      .filter((item): item is Card => item !== null);
+    this.updatePlayerCardCount();
+    this.emitHands();
+    this.broadcastEvent('tribute_returned', {
+      fromPlayerId: exchange.toPlayerId,
+      toPlayerId: exchange.fromPlayerId,
+      card,
+    });
+    this.advanceReturnTribute();
+  }
+
+  private completeTribute() {
+    if (!this.state) return;
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
+    const leadIndex = Math.max(0, this.players.findIndex(player => player.id === this.state!.tributeLeadPlayerId));
+    this.emitHands();
+    this.startPlayingPhase(leadIndex);
+  }
+
+  private transferCard(fromPlayerId: string, toPlayerId: string, card: Card) {
+    const fromHand = this.hands.get(fromPlayerId) || [];
+    const cardIndex = fromHand.findIndex(item => item.id === card.id);
+    if (cardIndex < 0) return;
+    const [transferred] = fromHand.splice(cardIndex, 1);
+    this.hands.set(fromPlayerId, sortCards(fromHand, this.currentLevel));
+    this.hands.set(toPlayerId, sortCards([...(this.hands.get(toPlayerId) || []), transferred], this.currentLevel));
   }
 
   private startTurn() {
@@ -502,11 +699,17 @@ export class GameRoom {
     this.state.phase = GamePhase.RoundEnd;
     this.broadcastEvent('round_end', result);
     this.broadcastState();
-    this.emitToAll('round_end', result);
   }
 
-  startNextRound() {
+  startNextRound(requesterId: string): { success: boolean; error?: string } {
+    if (!this.state || this.state.phase !== GamePhase.RoundEnd) {
+      return { success: false, error: '当前不能开始下一局' };
+    }
+    if (!this.hasPlayer(requesterId)) {
+      return { success: false, error: '只有牌局中的玩家可以开始下一局' };
+    }
     this.startGame();
+    return { success: true };
   }
 
   private async aiPlay() {
@@ -592,6 +795,7 @@ export class GameRoom {
     this.state.teamLevels = [...this.teamLevels];
     this.state.leadingTeam = this.leadingTeam;
     this.emitToAll('game_state', this.state);
+    this.emitSpectatorHands();
   }
 
   private broadcastEvent(event: string, data: any) {
@@ -616,6 +820,18 @@ export class GameRoom {
       if (!p.isAI) {
         this.emitHandToPlayer(p.id);
       }
+    }
+  }
+
+  private emitSpectatorHands() {
+    if (this.spectators.size === 0) return;
+    const hands: SpectatorHands = {};
+    for (const player of this.players) {
+      hands[player.id] = this.getHand(player.id);
+    }
+    for (const spectator of this.spectators.values()) {
+      if (!spectator.socket) continue;
+      try { spectator.socket.emit('spectator_hands', hands); } catch (e) {}
     }
   }
 

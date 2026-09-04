@@ -78,6 +78,16 @@ export interface SpectatorInfo {
   name: string;
 }
 
+/** Complete hands are sent only to authenticated spectators, never in public game state. */
+export type SpectatorHands = Record<string, Card[]>;
+
+export interface TributeExchange {
+  fromPlayerId: string;
+  toPlayerId: string;
+  tributeCard: Card;
+  returnCard: Card | null;
+}
+
 export type AiProvider = 'deepseek' | 'local';
 
 export interface AiModelSelection {
@@ -117,6 +127,9 @@ export interface GameState {
   tributeTo: number | null;
   tributeCard: Card | null;
   returnTributeCards: Card[] | null;
+  tributeExchanges: TributeExchange[];
+  tributeResisted: boolean;
+  tributeLeadPlayerId: string | null;
   redHeartIndex: number;
   roundNumber: number;
 }

@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
-import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, ChatMessage, RoundResult } from '../sharedTypes';
+import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, ChatMessage, RoundResult, SpectatorHands } from '../sharedTypes';
 import HandCards from '../components/HandCards';
 import PlayerInfoComponent from '../components/PlayerInfo';
 import PlayArea, { PlayerAction } from '../components/PlayArea';
 import Chat from '../components/Chat';
+import SpectatorHand from '../components/SpectatorHand';
+import CardComponent from '../components/CardComponent';
 
 export default function GameRoom() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -24,6 +26,8 @@ export default function GameRoom() {
   const [errorMsg, setErrorMsg] = useState('');
   const [waiting, setWaiting] = useState(true);
   const [selectedSeatPlayerId, setSelectedSeatPlayerId] = useState<string | null>(null);
+  const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
+  const [tributeNotice, setTributeNotice] = useState('');
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -39,6 +43,7 @@ export default function GameRoom() {
     const onGameState = (state: GameState) => {
       setGameState(state);
       setWaiting(state.phase === 'waiting');
+      if (state.phase !== 'round_end') setRoundResult(null);
 
       setPlayerActions(previous => {
         if (!state.lastPlay || state.lastPlayPlayerIndex < 0 || state.passCount >= 3) return {};
@@ -70,6 +75,17 @@ export default function GameRoom() {
       setMyCards(cards);
     };
     socket.on('your_cards', onMyCards);
+
+    const onSpectatorHands = (hands: SpectatorHands) => {
+      if (spectatorMode) setSpectatorHands(hands);
+    };
+    socket.on('spectator_hands', onSpectatorHands);
+
+    const onTributeResisted = () => {
+      setTributeNotice('抗贡！由上游先出牌');
+      setTimeout(() => setTributeNotice(''), 3500);
+    };
+    socket.on('tribute_resisted', onTributeResisted);
 
     const onPlayerPlayed = (data: { playerId: string; playerName: string; pattern: CardPattern }) => {
       setPlayerActions(previous => ({
@@ -132,6 +148,8 @@ export default function GameRoom() {
       socket.off('game_state', onGameState);
       socket.off('game_started', onGameStarted);
       socket.off('your_cards', onMyCards);
+      socket.off('spectator_hands', onSpectatorHands);
+      socket.off('tribute_resisted', onTributeResisted);
       socket.off('player_played', onPlayerPlayed);
       socket.off('player_pass', onPlayerPass);
       socket.off('player_finish', onPlayerFinish);
@@ -178,6 +196,14 @@ export default function GameRoom() {
     clearSelection();
   };
 
+  const handleReturnTribute = () => {
+    if (selectedCardIds.size !== 1) return;
+    const card = myCards.find(item => selectedCardIds.has(item.id));
+    if (!card) return;
+    getSocket()?.emit('return_tribute', { card });
+    clearSelection();
+  };
+
   const handleChat = (content: string) => {
     const socket = getSocket();
     socket?.emit('chat', { content });
@@ -207,12 +233,35 @@ export default function GameRoom() {
   const opponentLevel = viewingTeam === 0 ? teamBLevel : teamALevel;
   const leadingTeam = gameState?.leadingTeam || 0;
   const ownIsLeading = leadingTeam === viewingTeam;
+  const pendingTributeExchange = gameState?.tributeExchanges.find(exchange => exchange.returnCard === null) || null;
+  const isMyReturnTribute = !isSpectator
+    && gameState?.phase === 'return_tribute'
+    && pendingTributeExchange?.toPlayerId === userId;
+  const selectedReturnCard = selectedCardIds.size === 1
+    ? myCards.find(card => selectedCardIds.has(card.id)) || null
+    : null;
+  const canReturnSelectedCard = !!selectedReturnCard
+    && selectedReturnCard.rank <= 10
+    && selectedReturnCard.rank !== currentLevel;
+  const turnMessage = gameState?.phase === 'return_tribute'
+    ? (isMyReturnTribute ? '请选择一张10及以下的牌还贡' : '等待对方还贡...')
+    : (isMyTurn ? '轮到你了!' : '等待中...');
+
+  const playerName = (playerId: string) =>
+    gameState?.players.find(player => player.id === playerId)?.name || '未知玩家';
 
   const getPlayerForPosition = (posIdx: number): PlayerInfoType | null => {
     if (!gameState) return null;
     const seatIdx = (displaySeatIndex + posIdx) % 4;
     return gameState.players.find(player => player.seatIndex === seatIdx) || null;
   };
+
+  const spectatorPositions = [
+    { offset: 0, position: 'bottom' },
+    { offset: 1, position: 'right' },
+    { offset: 2, position: 'top' },
+    { offset: 3, position: 'left' },
+  ] as const;
 
   const handleSeatClick = (targetSeatIndex: number) => {
     if (!isRoomOwner || !gameState) return;
@@ -245,12 +294,13 @@ export default function GameRoom() {
           </div>
           <div className="duel-score-meta">第 {gameState?.roundNumber || 0} 局 · {isSpectator ? `队伍 ${leadingTeam === 0 ? 'A' : 'B'} 在台` : `${ownIsLeading ? '我方' : '对方'}在台`}</div>
         </div>
-        {!isSpectator && (
+        {!isSpectator && gameState?.phase !== 'round_end' && (
           <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
-            <span>{isMyTurn ? '轮到你了!' : '等待中...'}</span>
+            <span>{turnMessage}</span>
             {errorMsg && <span className="game-turn-error">{errorMsg}</span>}
           </div>
         )}
+        {tributeNotice && <div className="tribute-notice">{tributeNotice}</div>}
         <div className="room-exit-actions">
           <button
             className="btn-danger"
@@ -316,6 +366,20 @@ export default function GameRoom() {
           ) : null;
         })}
 
+        {/* Spectators receive a separate private snapshot and can inspect all four hands. */}
+        {isSpectator && !waiting && spectatorPositions.map(({ offset, position }) => {
+          const player = getPlayerForPosition(offset);
+          return player ? (
+            <SpectatorHand
+              key={player.id}
+              cards={spectatorHands[player.id] || []}
+              playerName={player.name}
+              position={position}
+              currentLevel={currentLevel}
+            />
+          ) : null;
+        })}
+
         {/* Bottom-left — myself */}
         <div className="self-player-seat">
           {getPlayerForPosition(0) && (
@@ -366,6 +430,22 @@ export default function GameRoom() {
                 </button>
               )}
             </div>
+          ) : gameState?.phase === 'return_tribute' ? (
+            <div className="tribute-panel">
+              <h3>进贡与还贡</h3>
+              {gameState.tributeExchanges.map(exchange => (
+                <div className="tribute-exchange" key={`${exchange.fromPlayerId}-${exchange.toPlayerId}`}>
+                  <span>{playerName(exchange.fromPlayerId)}</span>
+                  <CardComponent card={exchange.tributeCard} size="sm" isLevelCard={exchange.tributeCard.rank === currentLevel} />
+                  <span className="tribute-arrow">进贡给</span>
+                  <span>{playerName(exchange.toPlayerId)}</span>
+                  <span className="tribute-return-label">还贡</span>
+                  {exchange.returnCard
+                    ? <CardComponent card={exchange.returnCard} size="sm" isLevelCard={exchange.returnCard.rank === currentLevel} />
+                    : <span className="tribute-waiting">等待选择</span>}
+                </div>
+              ))}
+            </div>
           ) : (
             <div style={{ textAlign: 'center' }}>
               {getPlayerForPosition(0) && (
@@ -382,46 +462,59 @@ export default function GameRoom() {
         {!isSpectator && <div style={styles.bottomArea}>
           <div className="game-action-bar">
             <div className="game-play-actions">
-              <button
-                className="btn-primary"
-                onClick={handlePlay}
-                disabled={!isMyTurn}
-                style={{
-                  opacity: isMyTurn ? 1 : 0.4,
-                  padding: '8px 24px',
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
-                出牌 ({selectedCardIds.size}张)
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => { getSocket()?.emit('hint'); }}
-                disabled={!isMyTurn}
-                style={{
-                  opacity: isMyTurn ? 1 : 0.3,
-                  padding: '8px 16px',
-                  fontSize: 14,
-                  background: 'rgba(230,180,34,0.2)',
-                  color: '#e6b422',
-                  border: '1px solid rgba(230,180,34,0.4)',
-                }}
-              >
-                提示
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={handlePass}
-                disabled={!isMyTurn || !gameState?.lastPlay}
-                style={{
-                  opacity: isMyTurn ? 1 : 0.3,
-                  padding: '8px 20px',
-                  fontSize: 14,
-                }}
-              >
-                不出
-              </button>
+              {gameState?.phase === 'return_tribute' ? (
+                <button
+                  className="btn-primary"
+                  onClick={handleReturnTribute}
+                  disabled={!isMyReturnTribute || !canReturnSelectedCard}
+                  style={{ opacity: isMyReturnTribute && canReturnSelectedCard ? 1 : 0.4 }}
+                >
+                  {isMyReturnTribute ? `还贡 (${selectedCardIds.size}张)` : '等待还贡'}
+                </button>
+              ) : (
+                <>
+                  <button
+                    className="btn-primary"
+                    onClick={handlePlay}
+                    disabled={!isMyTurn}
+                    style={{
+                      opacity: isMyTurn ? 1 : 0.4,
+                      padding: '8px 24px',
+                      fontSize: 14,
+                      fontWeight: 700,
+                    }}
+                  >
+                    出牌 ({selectedCardIds.size}张)
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => { getSocket()?.emit('hint'); }}
+                    disabled={!isMyTurn}
+                    style={{
+                      opacity: isMyTurn ? 1 : 0.3,
+                      padding: '8px 16px',
+                      fontSize: 14,
+                      background: 'rgba(230,180,34,0.2)',
+                      color: '#e6b422',
+                      border: '1px solid rgba(230,180,34,0.4)',
+                    }}
+                  >
+                    提示
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={handlePass}
+                    disabled={!isMyTurn || !gameState?.lastPlay}
+                    style={{
+                      opacity: isMyTurn ? 1 : 0.3,
+                      padding: '8px 20px',
+                      fontSize: 14,
+                    }}
+                  >
+                    不出
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <HandCards
