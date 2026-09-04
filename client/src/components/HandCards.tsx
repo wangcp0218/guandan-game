@@ -58,7 +58,9 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
                 key={card.id}
                 style={{
                   bottom: stackOffset(cardIndex),
-                  zIndex: selected ? 100 : group.length - cardIndex,
+                  // Keep a selected card inside its original stack layer. Raising its
+                  // wrapper above the entire stack hides the middle cards in 3+ stacks.
+                  zIndex: group.length - cardIndex,
                 }}
               >
                 <CardComponent

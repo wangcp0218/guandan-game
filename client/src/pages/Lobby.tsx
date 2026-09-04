@@ -12,7 +12,7 @@ export default function Lobby() {
   const [roomPass, setRoomPass] = useState('');
   const [joinPass, setJoinPass] = useState('');
   const [info, setInfo] = useState('');
-  const [aiCount, setAiCount] = useState(0);
+  const [aiCount, setAiCount] = useState(3);
   const [aiProvider, setAiProvider] = useState<AiProvider>('deepseek');
   const [aiModel, setAiModel] = useState('deepseek-v4-flash');
   const [aiModels, setAiModels] = useState<string[]>([]);
