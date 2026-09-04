@@ -288,6 +288,101 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   transform: translate(-50%, -50%);
 }
 
+.waiting-seat-setup {
+  width: min(520px, calc(100vw - 48px));
+  padding: 20px;
+  border: 1px solid rgba(230, 180, 34, .42);
+  border-radius: 16px;
+  background: rgba(5, 48, 29, .8);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .24);
+  text-align: center;
+}
+
+.waiting-seat-title {
+  color: #f0bd2c;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.waiting-seat-help {
+  margin: 6px 0 16px;
+  color: rgba(255,255,255,.62);
+  font-size: 12px;
+}
+
+.waiting-seat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.waiting-seat {
+  min-height: 82px;
+  padding: 10px;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 10px;
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  text-align: left;
+}
+
+.waiting-seat:not(:disabled):hover {
+  transform: translateY(-2px);
+  border-color: rgba(240, 189, 44, .8);
+}
+
+.waiting-seat.is-seat-empty {
+  border-style: dashed;
+  color: rgba(255,255,255,.5);
+}
+
+.waiting-seat.is-seat-selected {
+  border-color: #f0bd2c;
+  background: rgba(230,180,34,.22);
+  box-shadow: 0 0 0 2px rgba(240,189,44,.22);
+}
+
+.waiting-seat span,
+.waiting-seat strong,
+.waiting-seat small {
+  display: block;
+}
+
+.waiting-seat span,
+.waiting-seat small {
+  font-size: 11px;
+  color: rgba(255,255,255,.56);
+}
+
+.waiting-seat strong {
+  margin: 5px 0;
+  font-size: 15px;
+}
+
+.waiting-start-button {
+  margin-top: 16px;
+  padding: 10px 26px;
+  font-size: 14px;
+}
+
+.room-code-watch {
+  width: fit-content;
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #e7c660;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.room-code-watch:hover {
+  transform: none;
+  text-decoration: underline;
+}
+
 .seat-action-pass {
   min-width: 84px;
   color: #ffe0a3;
@@ -421,6 +516,19 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   .game-action-bar {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .waiting-seat-setup {
+    padding: 14px;
+  }
+
+  .waiting-seat-grid {
+    gap: 7px;
+  }
+
+  .waiting-seat {
+    min-height: 72px;
+    padding: 8px;
   }
 
   .game-turn-status {

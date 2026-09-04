@@ -7,11 +7,12 @@ export class RoomManager {
 
   createRoom(
     name: string,
+    ownerId: string,
     password: string = '',
     aiCount: number = 0,
     aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
   ): GameRoom {
-    const room = new GameRoom(name, password, aiCount, aiModelSelection);
+    const room = new GameRoom(name, ownerId, password, aiCount, aiModelSelection);
     this.rooms.set(room.id, room);
     return room;
   }
@@ -26,7 +27,7 @@ export class RoomManager {
 
   getRoomList(): RoomInfo[] {
     return Array.from(this.rooms.values())
-      .filter(r => r.getPlayerCount() < 4)
+      .filter(r => r.getHumanPlayerCount() > 0)
       .map(r => r.toRoomInfo());
   }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, ChatMessage, RoundResult } from '../sharedTypes';
@@ -10,6 +10,8 @@ import Chat from '../components/Chat';
 
 export default function GameRoom() {
   const { roomId } = useParams<{ roomId: string }>();
+  const [searchParams] = useSearchParams();
+  const spectatorMode = searchParams.get('spectator') === '1';
   const navigate = useNavigate();
   const { userId, isLoggedIn, logout } = useAuthStore();
   const {
@@ -21,6 +23,7 @@ export default function GameRoom() {
   const [playerActions, setPlayerActions] = useState<Record<string, PlayerAction>>({});
   const [errorMsg, setErrorMsg] = useState('');
   const [waiting, setWaiting] = useState(true);
+  const [selectedSeatPlayerId, setSelectedSeatPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -31,7 +34,7 @@ export default function GameRoom() {
     const socket = getSocket();
     if (!socket) return;
 
-    socket.emit('join_room', { roomId });
+    socket.emit(spectatorMode ? 'join_spectator' : 'join_room', { roomId });
 
     const onGameState = (state: GameState) => {
       setGameState(state);
@@ -50,6 +53,8 @@ export default function GameRoom() {
       const myPlayer = state.players.find(p => p.id === userId);
       if (myPlayer) {
         setMySeatIndex(myPlayer.seatIndex);
+      } else if (spectatorMode) {
+        setMySeatIndex(-1);
       }
     };
     socket.on('game_state', onGameState);
@@ -117,6 +122,12 @@ export default function GameRoom() {
     };
     socket.on('hint_result', onHintResult);
 
+    const onSpectatorRemoved = () => {
+      reset();
+      navigate('/lobby');
+    };
+    socket.on('spectator_removed', onSpectatorRemoved);
+
     return () => {
       socket.off('game_state', onGameState);
       socket.off('game_started', onGameStarted);
@@ -129,11 +140,12 @@ export default function GameRoom() {
       socket.off('error', onError);
       socket.off('player_joined', onPlayerJoined);
       socket.off('hint_result', onHintResult);
+      socket.off('spectator_removed', onSpectatorRemoved);
     };
-  }, [roomId]);
+  }, [roomId, spectatorMode]);
 
   useEffect(() => {
-    if (!gameState || !userId) return;
+    if (!gameState || !userId || spectatorMode) return;
 
     const socket = getSocket();
     if (!socket) return;
@@ -146,7 +158,7 @@ export default function GameRoom() {
     }, 500);
 
     return () => clearInterval(loadInterval);
-  }, [gameState?.roomId, myCards.length]);
+  }, [gameState?.roomId, myCards.length, spectatorMode]);
 
   const handlePlay = () => {
     if (selectedCardIds.size === 0) {
@@ -184,13 +196,32 @@ export default function GameRoom() {
     navigate('/');
   };
 
-  const isMyTurn = gameState?.currentPlayerIndex === mySeatIndex && gameState?.phase === 'playing';
+  const isSpectator = spectatorMode || gameState?.spectators.some(spectator => spectator.id === userId) || false;
+  const displaySeatIndex = mySeatIndex >= 0 ? mySeatIndex : 0;
+  const isMyTurn = !isSpectator && gameState?.currentPlayerIndex === mySeatIndex && gameState?.phase === 'playing';
   const currentLevel = gameState?.currentLevel || 2;
+  const isRoomOwner = gameState?.ownerId === userId;
 
   const getPlayerForPosition = (posIdx: number): PlayerInfoType | null => {
-    if (!gameState || mySeatIndex < 0) return null;
-    const seatIdx = (mySeatIndex + posIdx) % 4;
-    return gameState.players[seatIdx] || null;
+    if (!gameState) return null;
+    const seatIdx = (displaySeatIndex + posIdx) % 4;
+    return gameState.players.find(player => player.seatIndex === seatIdx) || null;
+  };
+
+  const handleSeatClick = (targetSeatIndex: number) => {
+    if (!isRoomOwner || !gameState) return;
+    const occupant = gameState.players.find(player => player.seatIndex === targetSeatIndex);
+    if (!selectedSeatPlayerId) {
+      if (occupant) setSelectedSeatPlayerId(occupant.id);
+      return;
+    }
+    const selectedPlayer = gameState.players.find(player => player.id === selectedSeatPlayerId);
+    if (selectedPlayer?.seatIndex === targetSeatIndex) {
+      setSelectedSeatPlayerId(null);
+      return;
+    }
+    getSocket()?.emit('move_player_seat', { playerId: selectedSeatPlayerId, targetSeatIndex });
+    setSelectedSeatPlayerId(null);
   };
 
   return (
@@ -217,9 +248,9 @@ export default function GameRoom() {
             <PlayerInfoComponent
               player={getPlayerForPosition(2)!}
               position="top"
-              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 2) % 4}
-              isMe={getPlayerForPosition(2)!.id === userId}
-              isPartner={getPlayerForPosition(2)!.id !== userId}
+              isCurrent={gameState?.currentPlayerIndex === (displaySeatIndex + 2) % 4}
+              isMe={!isSpectator && getPlayerForPosition(2)!.id === userId}
+              isPartner={!isSpectator && getPlayerForPosition(2)!.id !== userId}
             />
           )}
         </div>
@@ -230,7 +261,7 @@ export default function GameRoom() {
             <PlayerInfoComponent
               player={getPlayerForPosition(3)!}
               position="left"
-              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 3) % 4}
+              isCurrent={gameState?.currentPlayerIndex === (displaySeatIndex + 3) % 4}
               isMe={getPlayerForPosition(3)!.id === userId}
               isPartner={false}
             />
@@ -243,7 +274,7 @@ export default function GameRoom() {
             <PlayerInfoComponent
               player={getPlayerForPosition(1)!}
               position="right"
-              isCurrent={gameState?.currentPlayerIndex === (mySeatIndex + 1) % 4}
+              isCurrent={gameState?.currentPlayerIndex === (displaySeatIndex + 1) % 4}
               isMe={getPlayerForPosition(1)!.id === userId}
               isPartner={false}
             />
@@ -267,8 +298,8 @@ export default function GameRoom() {
             <PlayerInfoComponent
               player={getPlayerForPosition(0)!}
               position="bottom"
-              isCurrent={gameState?.currentPlayerIndex === mySeatIndex}
-              isMe
+              isCurrent={gameState?.currentPlayerIndex === displaySeatIndex}
+              isMe={!isSpectator}
               isPartner={false}
             />
           )}
@@ -277,11 +308,39 @@ export default function GameRoom() {
         {/* Center - play area */}
         <div className="game-center-play-area">
           {waiting ? (
-            <div style={styles.waiting}>
-              <p style={{ fontSize: 18, color: '#e6b422' }}>等待玩家加入...</p>
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
-                {gameState?.players.filter(p => p.isOnline || p.id).length || 0}/4 人
+            <div className="waiting-seat-setup">
+              <p className="waiting-seat-title">开局前排座</p>
+              <p className="waiting-seat-help">
+                {isRoomOwner ? '点击一位玩家，再点击目标座位即可交换；开始后座位锁定。' : '等待房主安排座位并开始牌局。'}
               </p>
+              <div className="waiting-seat-grid">
+                {[0, 1, 2, 3].map(seatIndex => {
+                  const player = gameState?.players.find(item => item.seatIndex === seatIndex);
+                  const isSelected = player?.id === selectedSeatPlayerId;
+                  const teamLabel = seatIndex % 2 === 0 ? '队伍 A' : '队伍 B';
+                  return (
+                    <button
+                      type="button"
+                      key={seatIndex}
+                      className={`waiting-seat${isSelected ? ' is-seat-selected' : ''}${player ? '' : ' is-seat-empty'}`}
+                      onClick={() => handleSeatClick(seatIndex)}
+                      disabled={!isRoomOwner}
+                    >
+                      <span>座位 {seatIndex + 1} · {teamLabel}</span>
+                      <strong>{player ? player.name : '空位'}</strong>
+                      <small>对家：座位 {((seatIndex + 2) % 4) + 1}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              {isRoomOwner && (
+                <button
+                  className="btn-primary waiting-start-button"
+                  onClick={() => getSocket()?.emit('start_room')}
+                >
+                  开始牌局（自动补 AI）
+                </button>
+              )}
             </div>
           ) : (
             <div style={{ textAlign: 'center' }}>
@@ -299,7 +358,7 @@ export default function GameRoom() {
         </div>
 
         {/* Bottom - my hand cards */}
-        <div style={styles.bottomArea}>
+        {!isSpectator && <div style={styles.bottomArea}>
           <div className="game-action-bar">
             <div className="game-turn-status">
               <span style={{
@@ -364,15 +423,21 @@ export default function GameRoom() {
             onToggleStack={toggleCardStackSelection}
             currentLevel={currentLevel}
           />
-        </div>
+        </div>}
 
         {/* Chat panel */}
         <div className="game-chat-panel">
-          <Chat messages={messages} onSend={handleChat} />
+          <Chat
+            messages={messages}
+            onSend={handleChat}
+            spectators={gameState?.spectators || []}
+            canManageSpectators={isRoomOwner && !isSpectator}
+            onKickSpectator={(spectatorId) => getSocket()?.emit('kick_spectator', { spectatorId })}
+          />
         </div>
 
         {/* Round result modal */}
-        {roundResult && (
+        {roundResult && !isSpectator && (
           <div style={styles.modal}>
             <div style={styles.modalContent}>
               <h2 style={{ color: '#e6b422', marginBottom: 16 }}>

@@ -73,6 +73,11 @@ export interface PlayerInfo {
   isOnline: boolean;
 }
 
+export interface SpectatorInfo {
+  id: string;
+  name: string;
+}
+
 export type AiProvider = 'deepseek' | 'local';
 
 export interface AiModelSelection {
@@ -83,6 +88,10 @@ export interface AiModelSelection {
 export interface RoomInfo {
   id: string;
   name: string;
+  ownerId: string;
+  roomCode: string;
+  phase: GamePhase;
+  spectatorCount: number;
   playerCount: number;
   maxPlayers: number;
   level: number;
@@ -94,6 +103,8 @@ export interface RoomInfo {
 
 export interface GameState {
   roomId: string;
+  ownerId: string;
+  spectators: SpectatorInfo[];
   phase: GamePhase;
   currentLevel: number;
   players: PlayerInfo[];

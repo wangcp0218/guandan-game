@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { ChatMessage } from '../sharedTypes';
+import { ChatMessage, SpectatorInfo } from '../sharedTypes';
 
 interface Props {
   messages: ChatMessage[];
   onSend: (content: string) => void;
+  spectators?: SpectatorInfo[];
+  canManageSpectators?: boolean;
+  onKickSpectator?: (spectatorId: string) => void;
 }
 
-export default function Chat({ messages, onSend }: Props) {
+export default function Chat({ messages, onSend, spectators = [], canManageSpectators = false, onKickSpectator }: Props) {
   const [input, setInput] = useState('');
 
   const handleSend = () => {
@@ -32,9 +35,55 @@ export default function Chat({ messages, onSend }: Props) {
         fontWeight: 600,
         borderBottom: '1px solid rgba(255,255,255,0.1)',
         color: 'rgba(255,255,255,0.6)',
+        display: 'flex',
+        justifyContent: 'space-between',
       }}>
-        聊天
+        <span>聊天</span>
+        <span>观战 {spectators.length}</span>
       </div>
+      {spectators.length > 0 && (
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 4,
+          padding: '6px 8px',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          maxHeight: 54,
+          overflowY: 'auto',
+        }}>
+          {spectators.map(spectator => (
+            <span key={spectator.id} style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '2px 5px',
+              borderRadius: 4,
+              background: 'rgba(230,180,34,0.12)',
+              color: '#e7c660',
+              fontSize: 11,
+            }}>
+              {spectator.name}
+              {canManageSpectators && onKickSpectator && (
+                <button
+                  type="button"
+                  onClick={() => onKickSpectator(spectator.id)}
+                  aria-label={`剔除观察者 ${spectator.name}`}
+                  style={{
+                    padding: '0 3px',
+                    borderRadius: 3,
+                    background: 'rgba(211,47,47,.8)',
+                    color: '#fff',
+                    fontSize: 10,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{
         flex: 1,
         overflow: 'auto',

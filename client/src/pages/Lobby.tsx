@@ -2,12 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
-import { AiProvider, RoomInfo } from '../sharedTypes';
+import { AiProvider, GamePhase, RoomInfo } from '../sharedTypes';
 
 export default function Lobby() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [showJoinPass, setShowJoinPass] = useState<string | null>(null);
+  const [joinAsSpectator, setJoinAsSpectator] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [roomPass, setRoomPass] = useState('');
   const [joinPass, setJoinPass] = useState('');
@@ -47,6 +48,11 @@ export default function Lobby() {
 
     socket.on('room_joined', onRoomJoined);
 
+    const onSpectatorJoined = (data: { room: RoomInfo }) => {
+      navigate(`/game/${data.room.id}?spectator=1`);
+    };
+    socket.on('spectator_joined', onSpectatorJoined);
+
     const onError = (data: { message: string }) => {
       setInfo(data.message);
     };
@@ -84,6 +90,7 @@ export default function Lobby() {
     return () => {
       socket.off('room_list', onRoomList);
       socket.off('room_joined', onRoomJoined);
+      socket.off('spectator_joined', onSpectatorJoined);
       socket.off('error', onError);
       socket.off('room_created', onRoomCreated);
       socket.off('ai_models_result', onAiModelsResult);
@@ -128,12 +135,17 @@ export default function Lobby() {
     socket?.emit('join_room', { roomId });
   };
 
+  const watchRoom = (roomId: string) => {
+    getSocket()?.emit('join_spectator', { roomId });
+  };
+
   const joinRoomWithPass = () => {
     if (!showJoinPass) return;
     const socket = getSocket();
-    socket?.emit('join_room', { roomId: showJoinPass, password: joinPass });
+    socket?.emit(joinAsSpectator ? 'join_spectator' : 'join_room', { roomId: showJoinPass, password: joinPass });
     setShowJoinPass(null);
     setJoinPass('');
+    setJoinAsSpectator(false);
   };
 
   const refreshRooms = () => {
@@ -264,7 +276,7 @@ export default function Lobby() {
                 />
                 <div style={styles.modalBtns}>
                   <button className="btn-primary" onClick={joinRoomWithPass}>进入</button>
-                  <button className="btn-secondary" onClick={() => setShowJoinPass(null)}>取消</button>
+                  <button className="btn-secondary" onClick={() => { setShowJoinPass(null); setJoinAsSpectator(false); }}>取消</button>
                 </div>
               </div>
             </div>
@@ -283,20 +295,42 @@ export default function Lobby() {
                   <span style={styles.roomMeta}>
                     {room.hasPassword ? '🔒 ' : ''}等级{room.level} | {room.playerCount}人/{room.maxPlayers}人{room.aiCount > 0 ? ` | AIx${room.aiCount} | ${room.aiProvider}/${room.aiModel}` : ''}
                   </span>
+                  {room.phase !== GamePhase.Waiting && (
+                    <button
+                      type="button"
+                      className="room-code-watch"
+                      onClick={() => {
+                        if (room.hasPassword) {
+                          setJoinAsSpectator(true);
+                          setShowJoinPass(room.id);
+                        } else {
+                          watchRoom(room.id);
+                        }
+                      }}
+                    >
+                      房号 {room.roomCode} · 点击观战{room.spectatorCount > 0 ? `（${room.spectatorCount}）` : ''}
+                    </button>
+                  )}
                 </div>
-                <button
-                  className="btn-primary"
-                  style={{ padding: '6px 16px', fontSize: 12 }}
-                  onClick={() => {
-                    if (room.hasPassword) {
-                      setShowJoinPass(room.id);
-                    } else {
-                      joinRoom(room.id);
-                    }
-                  }}
-                >
-                  加入
-                </button>
+                {room.phase === GamePhase.Waiting && room.playerCount < room.maxPlayers && (
+                  <button
+                    className="btn-primary"
+                    style={{ padding: '6px 16px', fontSize: 12 }}
+                    onClick={() => {
+                      if (room.hasPassword) {
+                        setJoinAsSpectator(false);
+                        setShowJoinPass(room.id);
+                      } else {
+                        joinRoom(room.id);
+                      }
+                    }}
+                  >
+                    加入
+                  </button>
+                )}
+                {room.phase === GamePhase.Waiting && room.playerCount >= room.maxPlayers && (
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>等待房主开局</span>
+                )}
               </div>
             ))
           )}

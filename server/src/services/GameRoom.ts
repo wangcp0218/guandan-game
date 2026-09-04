@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   Card, GamePhase, GameState, PlayerInfo, CardPattern, PatternType,
-  RoundResult, Rank, Suit, ChatMessage, AiModelSelection,
+  RoundResult, Rank, Suit, ChatMessage, AiModelSelection, SpectatorInfo,
 } from '../../../shared/types';
 import { createDeck, shuffleDeck, dealCards, sortCards, isJoker } from '../engine/card';
 import { identifyPattern, isValidPlay } from '../engine/patterns';
@@ -18,7 +18,10 @@ export class GameRoom {
   id: string;
   name: string;
   password: string;
+  ownerId: string;
   players: { id: string; name: string; level: number; socket: any; isAI: boolean }[] = [];
+  private seatAssignments: Array<string | null> = Array(MAX_PLAYERS).fill(null);
+  private spectators: Map<string, { id: string; name: string; socket: any }> = new Map();
   state: GameState | null = null;
   hands: Map<string, Card[]> = new Map();
   rankings: { playerId: string; rank: number }[] = [];
@@ -31,6 +34,7 @@ export class GameRoom {
 
   constructor(
     name: string,
+    ownerId: string,
     password: string = '',
     aiCount: number = 0,
     aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
@@ -40,6 +44,7 @@ export class GameRoom {
     this.password = password;
     this.aiCount = aiCount;
     this.aiModelSelection = aiModelSelection;
+    this.ownerId = ownerId;
   }
 
   addPlayer(id: string, name: string, level: number, socket: any, isAI: boolean = false): number {
@@ -53,21 +58,28 @@ export class GameRoom {
       if (!this.state || this.state.phase === GamePhase.Waiting) {
         this.syncWaitingState();
       }
-      return existingIdx;
+      return this.seatAssignments.indexOf(id);
     }
 
     if (this.players.length >= MAX_PLAYERS) return -1;
-    const idx = this.players.length;
     this.players.push({ id, name, level, socket, isAI });
+    const seatIndex = this.seatAssignments.findIndex(seat => seat === null);
+    if (seatIndex >= 0) this.seatAssignments[seatIndex] = id;
     if (!this.state || this.state.phase === GamePhase.Waiting) {
       this.syncWaitingState();
     }
-    return idx;
+    return seatIndex;
   }
 
   removePlayer(id: string) {
+    const isWaiting = !this.state || this.state.phase === GamePhase.Waiting;
     this.players = this.players.filter(p => p.id !== id);
-    if (!this.state || this.state.phase === GamePhase.Waiting) {
+    if (isWaiting) {
+      const seatIndex = this.seatAssignments.indexOf(id);
+      if (seatIndex >= 0) this.seatAssignments[seatIndex] = null;
+      if (this.ownerId === id) {
+        this.ownerId = this.players.find(player => !player.isAI)?.id || '';
+      }
       this.syncWaitingState();
     }
   }
@@ -84,8 +96,44 @@ export class GameRoom {
     return this.players.some(p => p.id === id);
   }
 
+  hasSpectator(id: string): boolean {
+    return this.spectators.has(id);
+  }
+
+  addSpectator(id: string, name: string, socket: any): { success: boolean; error?: string } {
+    if (!this.state || this.state.phase === GamePhase.Waiting) {
+      return { success: false, error: '牌局尚未开始，不能观战' };
+    }
+    if (this.hasPlayer(id)) return { success: false, error: '你已在牌局中' };
+    this.spectators.set(id, { id, name, socket });
+    this.broadcastState();
+    return { success: true };
+  }
+
+  removeSpectator(id: string) {
+    if (!this.spectators.delete(id)) return;
+    this.broadcastState();
+  }
+
+  removeAllSpectators(): any[] {
+    const sockets = Array.from(this.spectators.values(), spectator => spectator.socket).filter(Boolean);
+    this.spectators.clear();
+    return sockets;
+  }
+
+  removeSpectatorByOwner(ownerId: string, spectatorId: string): { success: boolean; error?: string; socket?: any } {
+    if (ownerId !== this.ownerId) return { success: false, error: '只有房主可以剔除观察者' };
+    const spectator = this.spectators.get(spectatorId);
+    if (!spectator) return { success: false, error: '观察者已离开' };
+    this.spectators.delete(spectatorId);
+    this.broadcastState();
+    return { success: true, socket: spectator.socket };
+  }
+
   clearPlayers() {
     this.players = [];
+    this.seatAssignments = Array(MAX_PLAYERS).fill(null);
+    this.spectators.clear();
     this.hands.clear();
     this.rankings = [];
     this.recentActions = [];
@@ -98,6 +146,38 @@ export class GameRoom {
 
   canStart(): boolean {
     return this.players.length === MAX_PLAYERS;
+  }
+
+  movePlayerToSeat(ownerId: string, playerId: string, targetSeatIndex: number): { success: boolean; error?: string } {
+    if (!this.state || this.state.phase !== GamePhase.Waiting) {
+      return { success: false, error: '牌局已开始，不能调整座位' };
+    }
+    if (ownerId !== this.ownerId) return { success: false, error: '只有房主可以排座' };
+    if (!Number.isInteger(targetSeatIndex) || targetSeatIndex < 0 || targetSeatIndex >= MAX_PLAYERS) {
+      return { success: false, error: '无效座位' };
+    }
+    const sourceSeatIndex = this.seatAssignments.indexOf(playerId);
+    if (sourceSeatIndex < 0) return { success: false, error: '玩家不在房间中' };
+    const targetPlayerId = this.seatAssignments[targetSeatIndex];
+    this.seatAssignments[targetSeatIndex] = playerId;
+    this.seatAssignments[sourceSeatIndex] = targetPlayerId;
+    this.syncWaitingState();
+    return { success: true };
+  }
+
+  startByOwner(ownerId: string): { success: boolean; error?: string } {
+    if (!this.state || this.state.phase !== GamePhase.Waiting) {
+      return { success: false, error: '牌局已经开始' };
+    }
+    if (ownerId !== this.ownerId) return { success: false, error: '只有房主可以开始牌局' };
+    if (this.players.length + this.aiCount < MAX_PLAYERS) {
+      return { success: false, error: `人数不足，还需 ${MAX_PLAYERS - this.players.length - this.aiCount} 位真人玩家` };
+    }
+    this.fillWithAI();
+    if (!this.canStart()) return { success: false, error: '人数不足，无法开始牌局' };
+    this.lockSeatsForGame();
+    this.startGame();
+    return { success: true };
   }
 
   fillWithAI() {
@@ -125,6 +205,7 @@ export class GameRoom {
   }
 
   startGame() {
+    this.lockSeatsForGame();
     this.roundNumber++;
     const deck = shuffleDeck(createDeck());
     const dealt = dealCards(deck, MAX_PLAYERS);
@@ -139,6 +220,8 @@ export class GameRoom {
 
     this.state = {
       roomId: this.id,
+      ownerId: this.ownerId,
+      spectators: this.getSpectatorList(),
       phase: GamePhase.Waiting,
       currentLevel: this.currentLevel,
       players: this.players.map((p, i) => ({
@@ -172,13 +255,15 @@ export class GameRoom {
   syncWaitingState() {
     this.state = {
       roomId: this.id,
+      ownerId: this.ownerId,
+      spectators: this.getSpectatorList(),
       phase: GamePhase.Waiting,
       currentLevel: this.currentLevel,
-      players: this.players.map((p, i) => ({
+      players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         level: p.level,
-        seatIndex: i,
+        seatIndex: this.seatAssignments.indexOf(p.id),
         cardCount: this.hands.get(p.id)?.length || 0,
         isReady: p.isAI,
         isOnline: true,
@@ -195,6 +280,13 @@ export class GameRoom {
     };
 
     this.broadcastState();
+  }
+
+  private lockSeatsForGame() {
+    const orderedPlayers = this.seatAssignments
+      .map(playerId => this.players.find(player => player.id === playerId) || null)
+      .filter((player): player is { id: string; name: string; level: number; socket: any; isAI: boolean } => player !== null);
+    if (orderedPlayers.length === MAX_PLAYERS) this.players = orderedPlayers;
   }
 
   private startPlayingPhase() {
@@ -497,6 +589,7 @@ export class GameRoom {
 
   broadcastState() {
     if (!this.state) return;
+    this.state.spectators = this.getSpectatorList();
     this.emitToAll('game_state', this.state);
   }
 
@@ -508,6 +601,11 @@ export class GameRoom {
     for (const p of this.players) {
       if (!p.isAI && p.socket) {
         try { p.socket.emit(event, data); } catch (e) {}
+      }
+    }
+    for (const spectator of this.spectators.values()) {
+      if (spectator.socket) {
+        try { spectator.socket.emit(event, data); } catch (e) {}
       }
     }
   }
@@ -532,6 +630,10 @@ export class GameRoom {
     return {
       id: this.id,
       name: this.name,
+      ownerId: this.ownerId,
+      roomCode: this.id.slice(0, 8).toUpperCase(),
+      phase: this.state?.phase || GamePhase.Waiting,
+      spectatorCount: this.spectators.size,
       playerCount: this.players.filter(p => !p.isAI).length,
       maxPlayers: MAX_PLAYERS,
       level: this.currentLevel,
@@ -540,5 +642,12 @@ export class GameRoom {
       aiProvider: this.aiModelSelection.provider,
       aiModel: this.aiModelSelection.model,
     };
+  }
+
+  private getSpectatorList(): SpectatorInfo[] {
+    return Array.from(this.spectators.values(), spectator => ({
+      id: spectator.id,
+      name: spectator.name,
+    }));
   }
 }

@@ -107,7 +107,7 @@ export function setupSocketHandlers(io: Server) {
         socket.emit('error', { message: '请选择 AI 模型' });
         return;
       }
-      const room = roomManager.createRoom(data.name, data.password || '', data.aiCount || 0, aiModelSelection);
+      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', data.aiCount || 0, aiModelSelection);
       socket.emit('room_created', room.toRoomInfo());
       socket.emit('room_list', roomManager.getRoomList());
     });
@@ -121,6 +121,10 @@ export function setupSocketHandlers(io: Server) {
       if (socket.currentRoomId === data.roomId) {
         const currentRoom = roomManager.getRoom(data.roomId);
         if (currentRoom) {
+          if (currentRoom.hasSpectator(socket.userId)) {
+            socket.emit('error', { message: '当前正在观战，不能作为玩家加入' });
+            return;
+          }
           const user = findUserById(socket.userId);
           const idx = currentRoom.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
           socket.emit('room_joined', { room: currentRoom.toRoomInfo(), seatIndex: idx });
@@ -167,13 +171,68 @@ export function setupSocketHandlers(io: Server) {
         });
       }
 
-      room.fillWithAI();
+      // Keep the room in the seating phase until the host explicitly starts.
+      room.syncWaitingState();
+    });
 
-      if (room.canStart()) {
-        room.startGame();
-      } else {
-        room.syncWaitingState();
+    socket.on('join_spectator', (data: { roomId: string; password?: string }) => {
+      if (!socket.userId) {
+        socket.emit('error', { message: '请先登录' });
+        return;
       }
+      if (socket.currentRoomId && socket.currentRoomId !== data.roomId) {
+        handleLeaveRoom(socket, io);
+      }
+      const room = roomManager.getRoom(data.roomId);
+      if (!room) {
+        socket.emit('error', { message: '房间不存在' });
+        return;
+      }
+      if (room.password && room.password !== (data.password || '')) {
+        socket.emit('error', { message: '房间密码错误' });
+        return;
+      }
+      const result = room.addSpectator(socket.userId, socket.username || '观战者', socket);
+      if (!result.success) {
+        socket.emit('error', { message: result.error });
+        return;
+      }
+      socket.join(room.id);
+      socket.currentRoomId = room.id;
+      socket.emit('spectator_joined', { room: room.toRoomInfo() });
+      io.emit('room_list', roomManager.getRoomList());
+    });
+
+    socket.on('move_player_seat', (data: { playerId?: string; targetSeatIndex?: number }) => {
+      if (!socket.userId || !socket.currentRoomId || !data.playerId || !Number.isInteger(data.targetSeatIndex)) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      const result = room.movePlayerToSeat(socket.userId, data.playerId, data.targetSeatIndex as number);
+      if (!result.success) socket.emit('error', { message: result.error });
+    });
+
+    socket.on('start_room', () => {
+      if (!socket.userId || !socket.currentRoomId) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      const result = room.startByOwner(socket.userId);
+      if (!result.success) socket.emit('error', { message: result.error });
+      else io.emit('room_list', roomManager.getRoomList());
+    });
+
+    socket.on('kick_spectator', (data: { spectatorId?: string }) => {
+      if (!socket.userId || !socket.currentRoomId || !data.spectatorId) return;
+      const room = roomManager.getRoom(socket.currentRoomId);
+      if (!room) return;
+      const result = room.removeSpectatorByOwner(socket.userId, data.spectatorId);
+      if (!result.success) {
+        socket.emit('error', { message: result.error });
+        return;
+      }
+      result.socket?.leave(room.id);
+      if (result.socket) result.socket.currentRoomId = undefined;
+      result.socket?.emit('spectator_removed');
+      io.emit('room_list', roomManager.getRoomList());
     });
 
     socket.on('leave_room', () => {
@@ -248,6 +307,13 @@ function handleLeaveRoom(socket: AuthSocket, io: Server) {
 
   const room = roomManager.getRoom(socket.currentRoomId);
   if (room) {
+    if (room.hasSpectator(socket.userId)) {
+      room.removeSpectator(socket.userId);
+      socket.leave(socket.currentRoomId);
+      io.emit('room_list', roomManager.getRoomList());
+      socket.currentRoomId = undefined;
+      return;
+    }
     room.removePlayer(socket.userId);
     socket.leave(socket.currentRoomId);
     io.to(socket.currentRoomId).emit('player_left', {
@@ -256,9 +322,15 @@ function handleLeaveRoom(socket: AuthSocket, io: Server) {
     });
 
     if (room.getHumanPlayerCount() === 0) {
+      for (const spectatorSocket of room.removeAllSpectators()) {
+        spectatorSocket.leave(socket.currentRoomId);
+        spectatorSocket.currentRoomId = undefined;
+        spectatorSocket.emit('spectator_removed');
+      }
       room.clearPlayers();
       roomManager.removeRoom(socket.currentRoomId);
     }
+    io.emit('room_list', roomManager.getRoomList());
   }
   socket.currentRoomId = undefined;
 }
