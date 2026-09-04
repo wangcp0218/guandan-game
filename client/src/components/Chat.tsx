@@ -20,7 +20,7 @@ export default function Chat({ messages, onSend, spectators = [], canManageSpect
 
   return (
     <div style={{
-      width: 200,
+      width: '100%',
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
@@ -113,6 +113,7 @@ export default function Chat({ messages, onSend, spectators = [], canManageSpect
           placeholder="说点什么..."
           style={{
             flex: 1,
+            minWidth: 0,
             padding: '4px 8px',
             fontSize: 12,
             background: 'rgba(255,255,255,0.06)',
@@ -129,7 +130,7 @@ export default function Chat({ messages, onSend, spectators = [], canManageSpect
             color: '#333',
             border: 'none',
             borderRadius: 4,
-            padding: '4px 10px',
+            padding: '4px 7px',
             fontSize: 12,
             fontWeight: 600,
             cursor: 'pointer',

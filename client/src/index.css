@@ -558,27 +558,49 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   top: 60px;
   right: 16px;
   z-index: 20;
-  height: 260px;
+  width: clamp(320px, 34vw, 640px);
+  height: clamp(150px, 20vh, 210px);
 }
 
 .game-action-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
+  column-gap: 12px;
+  row-gap: 5px;
+  margin-bottom: 18px;
 }
 
 .game-turn-status {
+  grid-column: 2;
+  grid-row: 2;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
+  min-height: 24px;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 3px 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 12px;
+  background: rgba(3, 35, 21, .7);
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
   position: relative;
   z-index: 32;
 }
 
+.game-turn-status.is-my-turn {
+  border-color: rgba(255, 212, 59, .52);
+  background: rgba(111, 82, 7, .56);
+  box-shadow: 0 0 12px rgba(255, 204, 39, .16);
+}
+
 .game-play-actions {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -586,6 +608,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .game-action-spacer {
+  display: none;
   min-width: 0;
 }
 
@@ -626,23 +649,8 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   .game-chat-panel {
     top: 48px;
     right: 8px;
-    height: 210px;
-    transform: scale(.86);
-    transform-origin: right top;
-  }
-
-  /* The compact self card occupies the lower-left corner on short screens.
-     Keep the turn indicator in the otherwise unused top-left space. */
-  .game-turn-status {
-    position: fixed;
-    top: 12px;
-    left: 16px;
-    z-index: 32;
-    width: fit-content;
-    padding: 5px 8px;
-    border-radius: 6px;
-    background: rgba(4, 38, 23, .72);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
+    width: min(56vw, 420px);
+    height: clamp(132px, 24vh, 175px);
   }
 }
 
@@ -685,12 +693,14 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   }
 
   .game-turn-status {
+    grid-column: 1;
+    grid-row: 2;
     justify-content: center;
-    order: 2;
   }
 
   .game-play-actions {
-    order: 1;
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .game-action-spacer {

@@ -375,11 +375,11 @@ export default function GameRoom() {
         {/* Bottom - my hand cards */}
         {!isSpectator && <div style={styles.bottomArea}>
           <div className="game-action-bar">
-            <div className="game-turn-status">
+            <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
               <span style={{
-                fontSize: 12,
-                color: isMyTurn ? '#e6b422' : 'rgba(255,255,255,0.4)',
-                fontWeight: 600,
+                fontSize: 13,
+                color: isMyTurn ? '#ffd43b' : 'rgba(255,255,255,0.72)',
+                fontWeight: 800,
               }}>
                 {isMyTurn ? '轮到你了!' : '等待中...'}
               </span>
