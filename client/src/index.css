@@ -23,7 +23,9 @@
 
 body {
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: var(--bg-dark);
+  background:
+    radial-gradient(ellipse at center, rgba(35, 94, 63, .5), transparent 62%),
+    linear-gradient(135deg, #100c08 0%, #382116 48%, #130d09 100%);
   color: var(--text-primary);
   overflow: hidden;
   height: 100vh;
@@ -33,6 +35,74 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Felt table with a restrained wood rail, inspired by a physical card table. */
+.game-room {
+  padding: clamp(6px, 1.1vw, 18px);
+}
+
+.game-room > div {
+  border: clamp(7px, .85vw, 14px) solid #4c2c1b;
+  border-radius: clamp(16px, 2vw, 28px);
+  background:
+    radial-gradient(ellipse at 50% 46%, rgba(29, 126, 83, .4), transparent 58%),
+    repeating-linear-gradient(25deg, rgba(255,255,255,.012) 0 1px, transparent 1px 5px),
+    linear-gradient(135deg, #064c32 0%, #075f3d 48%, #033b26 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(245, 197, 113, .16),
+    inset 0 0 42px rgba(0, 0, 0, .34),
+    0 10px 26px rgba(0, 0, 0, .45);
+}
+
+.duel-scoreboard {
+  position: absolute;
+  top: clamp(12px, 2.1vw, 28px);
+  left: clamp(12px, 2.1vw, 28px);
+  z-index: 31;
+  display: grid;
+  grid-template-columns: auto auto auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 162px;
+  padding: 6px 9px 5px;
+  border: 1px solid rgba(238, 195, 97, .45);
+  border-radius: 10px;
+  background: rgba(10, 35, 24, .78);
+  box-shadow: 0 4px 12px rgba(0,0,0,.3), inset 0 1px rgba(255,255,255,.1);
+}
+
+.duel-score-team {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.duel-score-team strong {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.duel-score-team--mine { color: #8fcaff; }
+.duel-score-team--opponent { color: #ff978f; }
+
+.duel-score-vs {
+  color: rgba(255,255,255,.56);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.duel-score-meta {
+  grid-column: 1 / -1;
+  padding-top: 3px;
+  border-top: 1px solid rgba(255,255,255,.13);
+  color: rgba(255,255,255,.65);
+  font-size: 10px;
+  text-align: center;
 }
 
 input, button {
@@ -138,6 +208,33 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   box-shadow: 0 2px 7px rgba(0,0,0,0.36), inset 0 1px 0 #fff;
 }
 
+/* Dedicated joker faces stay recognisable when cards overlap in a hand. */
+.playing-card--joker {
+  border-width: 2px;
+  overflow: hidden;
+}
+
+.playing-card--joker::before {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border: 1px solid currentColor;
+  border-radius: inherit;
+  opacity: .26;
+}
+
+.playing-card--joker-big {
+  background: linear-gradient(145deg, #fff8ef 0%, #ffd5c7 100%);
+  border-color: #a82927;
+  color: #b62c24 !important;
+}
+
+.playing-card--joker-small {
+  background: linear-gradient(145deg, #f7fbff 0%, #c8e0f2 100%);
+  border-color: #245a89;
+  color: #23547f !important;
+}
+
 .playing-card[role="button"]:hover {
   transform: translateY(-5px);
 }
@@ -204,14 +301,32 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .card-center--joker {
-  color: #c79013;
-  text-shadow: 0 1px 0 #fff;
+  inset: 25% 0 0;
+  text-shadow: 0 1px 0 rgba(255,255,255,.8);
 }
 
 .joker-face {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
+  line-height: .8;
+}
+
+.joker-crown {
+  line-height: .7;
+}
+
+.joker-title {
+  padding: 2px 4px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  background: rgba(255,255,255,.54);
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: clamp(9px, .72vw, 14px);
+  font-weight: 900;
+  letter-spacing: .08em;
 }
 
 .joker-card-badge {

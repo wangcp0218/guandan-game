@@ -60,30 +60,73 @@ function generateTriplePairs(rankCounts: Map<number, Card[]>, hand: Card[]): Car
   return result;
 }
 
-function generateStraights(hand: Card[]): Card[][] {
-  const result: Card[][] = [];
-  const rankSet = new Set<number>();
-  for (const c of hand) {
-    if (c.rank !== Rank.Two && !isJoker(c)) {
-      rankSet.add(c.rank);
+function buildRankRuns(minLength: number): Rank[][] {
+  const runs: Rank[][] = [];
+  for (let start = 1; start <= Rank.Ace - minLength + 1; start++) {
+    for (let length = minLength; start + length - 1 <= Rank.Ace; length++) {
+      runs.push(Array.from({ length }, (_, index) => {
+        const value = start + index;
+        return value === 1 ? Rank.Ace : value as Rank;
+      }));
     }
   }
-  const ranks = Array.from(rankSet).sort((a, b) => a - b);
+  return runs;
+}
 
-  for (let start = 0; start < ranks.length; start++) {
-    let end = start;
-    while (end + 1 < ranks.length && ranks[end + 1] === ranks[end] + 1) {
-      end++;
+function generateStraights(hand: Card[]): Card[][] {
+  const result: Card[][] = [];
+  const rankCounts = getRankCounts(hand);
+  for (const run of buildRankRuns(5)) {
+    if (run.every(rank => (rankCounts.get(rank)?.length || 0) > 0)) {
+      result.push(run.map(rank => rankCounts.get(rank)![0]));
     }
-    const len = end - start + 1;
-    if (len >= 5) {
-      const straightRanks = ranks.slice(start, start + 5);
-      const cards: Card[] = [];
-      for (const r of straightRanks) {
-        const c = hand.find(x => x.rank === r && !cards.includes(x));
-        if (c) cards.push(c);
-      }
-      if (cards.length === 5) result.push(cards);
+  }
+  return result;
+}
+
+function generateConsecutivePairs(rankCounts: Map<number, Card[]>): Card[][] {
+  const result: Card[][] = [];
+  for (const run of buildRankRuns(3)) {
+    if (run.every(rank => (rankCounts.get(rank)?.length || 0) >= 2)) {
+      result.push(run.flatMap(rank => rankCounts.get(rank)!.slice(0, 2)));
+    }
+  }
+  return result;
+}
+
+function generatePlanes(rankCounts: Map<number, Card[]>): Card[][] {
+  const result: Card[][] = [];
+  for (const run of buildRankRuns(2)) {
+    if (run.every(rank => (rankCounts.get(rank)?.length || 0) >= 3)) {
+      result.push(run.flatMap(rank => rankCounts.get(rank)!.slice(0, 3)));
+    }
+  }
+  return result;
+}
+
+function chooseRankGroups(ranks: number[], count: number, start = 0): number[][] {
+  if (count === 0) return [[]];
+  const result: number[][] = [];
+  for (let index = start; index <= ranks.length - count; index++) {
+    for (const rest of chooseRankGroups(ranks, count - 1, index + 1)) {
+      result.push([ranks[index], ...rest]);
+    }
+  }
+  return result;
+}
+
+function generatePlaneWings(rankCounts: Map<number, Card[]>): Card[][] {
+  const result: Card[][] = [];
+  for (const tripleRun of buildRankRuns(2)) {
+    if (!tripleRun.every(rank => (rankCounts.get(rank)?.length || 0) >= 3)) continue;
+    const pairRanks = Array.from(rankCounts.entries())
+      .filter(([rank, cards]) => !tripleRun.includes(rank as Rank) && cards.length >= 2)
+      .map(([rank]) => rank);
+    for (const pairGroup of chooseRankGroups(pairRanks, tripleRun.length)) {
+      result.push([
+        ...tripleRun.flatMap(rank => rankCounts.get(rank)!.slice(0, 3)),
+        ...pairGroup.flatMap(rank => rankCounts.get(rank)!.slice(0, 2)),
+      ]);
     }
   }
   return result;
@@ -121,6 +164,9 @@ export function generateLegalPlays(
   allCombos.push(...generatePairs(rankCounts));
   allCombos.push(...generateTriples(rankCounts));
   allCombos.push(...generateTriplePairs(rankCounts, hand));
+  allCombos.push(...generateConsecutivePairs(rankCounts));
+  allCombos.push(...generatePlanes(rankCounts));
+  allCombos.push(...generatePlaneWings(rankCounts));
   allCombos.push(...generateBombs(rankCounts));
   allCombos.push(...generateStraights(hand));
 

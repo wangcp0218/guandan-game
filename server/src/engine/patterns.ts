@@ -7,6 +7,23 @@ export function isSingle(cards: Card[]): boolean {
   return cards.length === 1;
 }
 
+/**
+ * 连牌类允许 A 作 1（A2345），也允许 2 出现在连牌中（23456）。
+ * 返回连牌的比较点数；A2345 的最高点按 5 计算，而不是按 A 计算。
+ */
+function consecutiveHighRank(ranks: Rank[]): Rank | null {
+  if (ranks.length === 0 || new Set(ranks).size !== ranks.length) return null;
+  const wanted = new Set(ranks);
+  for (let start = 1; start <= Rank.Ace - ranks.length + 1; start++) {
+    const run = Array.from({ length: ranks.length }, (_, index) => {
+      const value = start + index;
+      return value === 1 ? Rank.Ace : value as Rank;
+    });
+    if (run.every(rank => wanted.has(rank))) return run[run.length - 1];
+  }
+  return null;
+}
+
 export function isPair(cards: Card[]): boolean {
   return cards.length === 2 && cards[0].rank === cards[1].rank;
 }
@@ -39,14 +56,8 @@ export function isTriplePair(cards: Card[]): boolean {
 export function isStraight(cards: Card[]): boolean {
   // 掼蛋顺子固定为 5 张，不允许连出 6 张或更多。
   if (cards.length !== 5) return false;
-  for (const c of cards) {
-    if (c.rank === Rank.Two || isJoker(c)) return false;
-  }
-  const sorted = [...cards].sort((a, b) => a.rank - b.rank);
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].rank !== sorted[i - 1].rank + 1) return false;
-  }
-  return true;
+  if (cards.some(isJoker)) return false;
+  return consecutiveHighRank(cards.map(card => card.rank)) !== null;
 }
 
 export function isConsecutivePair(cards: Card[]): boolean {
@@ -54,9 +65,7 @@ export function isConsecutivePair(cards: Card[]): boolean {
   const pairCount = cards.length / 2;
   if (pairCount < 3) return false;
 
-  for (const c of cards) {
-    if (c.rank === Rank.Two || isJoker(c)) return false;
-  }
+  if (cards.some(isJoker)) return false;
 
   const rankCount = new Map<number, number>();
   for (const c of cards) {
@@ -70,11 +79,7 @@ export function isConsecutivePair(cards: Card[]): boolean {
   }
 
   if (ranks.length !== pairCount) return false;
-  ranks.sort((a, b) => a - b);
-  for (let i = 1; i < ranks.length; i++) {
-    if (ranks[i] !== ranks[i - 1] + 1) return false;
-  }
-  return true;
+  return consecutiveHighRank(ranks as Rank[]) !== null;
 }
 
 export function isPlane(cards: Card[]): boolean {
@@ -82,9 +87,7 @@ export function isPlane(cards: Card[]): boolean {
   const tripleCount = cards.length / 3;
   if (tripleCount < 2) return false;
 
-  for (const c of cards) {
-    if (c.rank === Rank.Two || isJoker(c)) return false;
-  }
+  if (cards.some(isJoker)) return false;
 
   const rankCount = new Map<number, number>();
   for (const c of cards) {
@@ -98,11 +101,7 @@ export function isPlane(cards: Card[]): boolean {
   }
 
   if (triples.length !== tripleCount) return false;
-  triples.sort((a, b) => a - b);
-  for (let i = 1; i < triples.length; i++) {
-    if (triples[i] !== triples[i - 1] + 1) return false;
-  }
-  return true;
+  return consecutiveHighRank(triples as Rank[]) !== null;
 }
 
 export function isPlaneWings(cards: Card[]): boolean {
@@ -110,9 +109,7 @@ export function isPlaneWings(cards: Card[]): boolean {
   if (cards.length < 10 || cards.length % 5 !== 0) return false;
   if (tripleCount < 2) return false;
 
-  for (const c of cards) {
-    if (c.rank === Rank.Two || isJoker(c)) return false;
-  }
+  if (cards.some(isJoker)) return false;
 
   const rankCount = new Map<number, number>();
   for (const c of cards) {
@@ -130,11 +127,7 @@ export function isPlaneWings(cards: Card[]): boolean {
 
   if (triples.length !== tripleCount || pairs.length !== tripleCount) return false;
 
-  triples.sort((a, b) => a - b);
-  for (let i = 1; i < triples.length; i++) {
-    if (triples[i] !== triples[i - 1] + 1) return false;
-  }
-  return true;
+  return consecutiveHighRank(triples as Rank[]) !== null;
 }
 
 export function isBomb(cards: Card[]): boolean {
@@ -151,21 +144,30 @@ export function isKingBomb(cards: Card[]): boolean {
 
 export function isFlushStraight(cards: Card[]): boolean {
   if (cards.length !== 5) return false;
-  for (const c of cards) {
-    if (c.rank === Rank.Two || isJoker(c)) return false;
-  }
+  if (cards.some(isJoker)) return false;
   const suit = cards[0].suit;
   if (!cards.every(c => c.suit === suit)) return false;
-
-  const sorted = [...cards].sort((a, b) => a.rank - b.rank);
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i].rank !== sorted[i - 1].rank + 1) return false;
-  }
-  return true;
+  return consecutiveHighRank(cards.map(card => card.rank)) !== null;
 }
 
 export function isWildCard(card: Card, currentLevel: number): boolean {
   return card.rank === (currentLevel as Rank) && card.suit === Suit.Heart;
+}
+
+function trySameRankWithWilds(
+  regulars: Card[],
+  allCards: Card[],
+  size: 2 | 3,
+): CardPattern | null {
+  if (allCards.length !== size || regulars.length === 0 || regulars.some(isJoker)) return null;
+  const rank = regulars[0].rank;
+  if (!regulars.every(card => card.rank === rank)) return null;
+  return {
+    type: size === 2 ? PatternType.Pair : PatternType.Triple,
+    cards: allCards,
+    rank,
+    length: size,
+  };
 }
 
 function tryStraightWithWilds(
@@ -178,8 +180,20 @@ function tryStraightWithWilds(
 
   const rankSet = new Set<number>();
   for (const c of regulars) {
-    if (c.rank === Rank.Two || isJoker(c)) return null;
+    if (isJoker(c)) return null;
     rankSet.add(c.rank);
+  }
+  if (rankSet.size !== regulars.length) return null;
+
+  const wheel = [Rank.Ace, Rank.Two, Rank.Three, Rank.Four, Rank.Five];
+  if (Array.from(rankSet).every(rank => wheel.includes(rank as Rank))) {
+    const missing = wheel.filter(rank => !rankSet.has(rank)).length;
+    if (missing === wildCount && missing > 0) {
+      const allCards = [...regulars, ...Array(wildCount).fill(null).map(() => ({
+        id: -1, suit: Suit.Heart, rank: currentLevel as Rank,
+      }))];
+      return { type: PatternType.Straight, cards: allCards, rank: Rank.Five, length: totalLength };
+    }
   }
 
   const ranks = Array.from(rankSet).sort((a, b) => a - b);
@@ -216,7 +230,7 @@ function tryConsecutivePairWithWilds(
   if (pairCount < 3) return null;
 
   for (const c of regulars) {
-    if (c.rank === Rank.Two || isJoker(c)) return null;
+    if (isJoker(c)) return null;
   }
 
   const rankCount = new Map<number, number>();
@@ -224,6 +238,23 @@ function tryConsecutivePairWithWilds(
   const ranks = Array.from(rankCount.keys()).sort((a, b) => a - b);
 
   if (ranks.length === 0) return null;
+
+  const wheel = [Rank.Ace, Rank.Two, Rank.Three, Rank.Four, Rank.Five];
+  if (pairCount <= 5 && ranks.every(rank => wheel.includes(rank as Rank))) {
+    let needed = 0;
+    let ok = true;
+    for (const rank of wheel.slice(0, pairCount)) {
+      const have = rankCount.get(rank) || 0;
+      if (have > 2) { ok = false; break; }
+      needed += 2 - have;
+    }
+    if (ok && needed === wildCount && needed > 0) {
+      const allCards = [...regulars, ...Array(wildCount).fill(null).map(() => ({
+        id: -1, suit: Suit.Heart, rank: currentLevel as Rank,
+      }))];
+      return { type: PatternType.ConsecutivePair, cards: allCards, rank: wheel[pairCount - 1], length: totalLength };
+    }
+  }
 
   for (let start = ranks[0]; start <= ranks[ranks.length - 1] + 1; start++) {
     const end = start + pairCount - 1;
@@ -244,6 +275,20 @@ function tryConsecutivePairWithWilds(
     }
   }
   return null;
+}
+
+function tryFlushStraightWithWilds(
+  regulars: Card[],
+  wildCount: number,
+  totalLength: number,
+  currentLevel: number
+): CardPattern | null {
+  if (regulars.length === 0 || regulars.some(card => isJoker(card))) return null;
+  if (!regulars.every(card => card.suit === regulars[0].suit)) return null;
+  const straight = tryStraightWithWilds(regulars, wildCount, totalLength, currentLevel);
+  return straight && straight.type === PatternType.Straight
+    ? { ...straight, type: PatternType.FlushStraight }
+    : null;
 }
 
 function tryTriplePairWithWilds(
@@ -309,13 +354,30 @@ function tryPlaneWithWilds(
   if (tripleCount < 2) return null;
 
   for (const c of regulars) {
-    if (c.rank === Rank.Two || isJoker(c)) return null;
+    if (isJoker(c)) return null;
   }
 
   const rankCount = new Map<number, number>();
   for (const c of regulars) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
   const ranks = Array.from(rankCount.keys()).sort((a, b) => a - b);
   if (ranks.length === 0) return null;
+
+  const wheel = [Rank.Ace, Rank.Two, Rank.Three, Rank.Four, Rank.Five];
+  if (tripleCount <= 5 && ranks.every(rank => wheel.includes(rank as Rank))) {
+    let needed = 0;
+    let ok = true;
+    for (const rank of wheel.slice(0, tripleCount)) {
+      const have = rankCount.get(rank) || 0;
+      if (have > 3) { ok = false; break; }
+      needed += 3 - have;
+    }
+    if (ok && needed === wildCount && needed > 0) {
+      const allCards = [...regulars, ...Array(wildCount).fill(null).map(() => ({
+        id: -1, suit: Suit.Heart, rank: currentLevel as Rank,
+      }))];
+      return { type: PatternType.Plane, cards: allCards, rank: wheel[tripleCount - 1], length: totalLength };
+    }
+  }
 
   for (let start = ranks[0]; start <= ranks[ranks.length - 1] + 1; start++) {
     const end = start + tripleCount - 1;
@@ -353,8 +415,12 @@ export function identifyPattern(
   }
 
   if (isFlushStraight(allCards)) {
-    const sorted = [...allCards].sort((a, b) => b.rank - a.rank);
-    return { type: PatternType.FlushStraight, cards: allCards, rank: sorted[0].rank, length: 5 };
+    return { type: PatternType.FlushStraight, cards: allCards, rank: consecutiveHighRank(allCards.map(card => card.rank))!, length: 5 };
+  }
+
+  if (wilds.length > 0) {
+    const flushStraight = tryFlushStraightWithWilds(regulars, wilds.length, allCards.length, currentLevel);
+    if (flushStraight) return flushStraight;
   }
 
   if (cards.length >= 4 && cards.length <= 8) {
@@ -365,7 +431,7 @@ export function identifyPattern(
     if (wilds.length > 0) {
       const rankCount = new Map<number, number>();
       for (const c of regulars) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
-      if (rankCount.size === 1) {
+      if (rankCount.size === 1 && regulars.length > 0 && !isJoker(regulars[0])) {
         const total = regulars.length + wilds.length;
         const bombType = `bomb${total}` as PatternType;
         return { type: bombType, cards: allCards, rank: regulars[0].rank, length: total };
@@ -393,35 +459,35 @@ export function identifyPattern(
   }
 
   if (isStraight(allCards)) {
-    const sorted = [...allCards].sort((a, b) => b.rank - a.rank);
-    return { type: PatternType.Straight, cards: allCards, rank: sorted[0].rank, length: cards.length };
+    return { type: PatternType.Straight, cards: allCards, rank: consecutiveHighRank(allCards.map(card => card.rank))!, length: cards.length };
   }
 
   if (isConsecutivePair(allCards)) {
     const rankCount = new Map<number, number>();
     for (const c of allCards) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
-    const ranks = Array.from(rankCount.keys()).sort((a, b) => b - a);
-    return { type: PatternType.ConsecutivePair, cards: allCards, rank: ranks[0], length: cards.length };
+    const ranks = Array.from(rankCount.keys()) as Rank[];
+    return { type: PatternType.ConsecutivePair, cards: allCards, rank: consecutiveHighRank(ranks)!, length: cards.length };
   }
 
   if (isPlane(allCards)) {
     const rankCount = new Map<number, number>();
     for (const c of allCards) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
-    const ranks = Array.from(rankCount.keys()).sort((a, b) => b - a);
-    return { type: PatternType.Plane, cards: allCards, rank: ranks[0], length: cards.length };
+    const ranks = Array.from(rankCount.keys()) as Rank[];
+    return { type: PatternType.Plane, cards: allCards, rank: consecutiveHighRank(ranks)!, length: cards.length };
   }
 
   if (isPlaneWings(allCards)) {
     const rankCount = new Map<number, number>();
     for (const c of allCards) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
     const triples = Array.from(rankCount.entries()).filter(([, c]) => c === 3).map(([r]) => r);
-    triples.sort((a, b) => b - a);
-    return { type: PatternType.PlaneWings, cards: allCards, rank: triples[0], length: cards.length };
+    return { type: PatternType.PlaneWings, cards: allCards, rank: consecutiveHighRank(triples as Rank[])!, length: cards.length };
   }
 
   if (wilds.length > 0) {
     const totalLen = regulars.length + wilds.length;
-    return tryStraightWithWilds(regulars, wilds.length, totalLen, currentLevel)
+    return trySameRankWithWilds(regulars, allCards, 2)
+      || trySameRankWithWilds(regulars, allCards, 3)
+      || tryStraightWithWilds(regulars, wilds.length, totalLen, currentLevel)
       || tryConsecutivePairWithWilds(regulars, wilds.length, totalLen, currentLevel)
       || tryTriplePairWithWilds(regulars, wilds.length, currentLevel)
       || tryPlaneWithWilds(regulars, wilds.length, totalLen, currentLevel);

@@ -15,8 +15,9 @@ export function isBombPattern(pattern: CardPattern): boolean {
 function bombPower(pattern: CardPattern, currentLevel: number): number {
   if (pattern.type === PatternType.KingBomb) return 9999;
   if (pattern.type === PatternType.FlushStraight) {
+    // 标准掼蛋：同花顺介于五张炸弹与六张炸弹之间。
     const er = effectiveRank(pattern.rank, currentLevel);
-    return 9000 + er;
+    return 5500 + er;
   }
   const bombNum = parseInt(pattern.type.replace('bomb', ''), 10);
   return bombNum * 1000 + effectiveRank(pattern.rank, currentLevel);

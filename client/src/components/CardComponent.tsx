@@ -87,12 +87,12 @@ export default function CardComponent({ card, selected, onClick, onContextMenu, 
   const background = isLevelCard
     ? 'linear-gradient(145deg, #fffdf1 0%, #fff5c7 100%)'
     : isJoker
-      ? 'linear-gradient(145deg, #fffdfb 0%, #f5f0ea 100%)'
+      ? undefined
       : 'linear-gradient(145deg, #ffffff 0%, #f4f4f2 100%)';
 
   return (
     <div
-      className={`playing-card playing-card--${size}${selected ? ' is-selected' : ''}${isLevelCard ? ' is-level-card' : ''}`}
+      className={`playing-card playing-card--${size}${selected ? ' is-selected' : ''}${isLevelCard ? ' is-level-card' : ''}${isJoker ? ` playing-card--joker playing-card--joker-${card.rank === Rank.BigJoker ? 'big' : 'small'}` : ''}`}
       onClick={onClick}
       onContextMenu={onContextMenu ? (event) => {
         event.preventDefault();
@@ -120,7 +120,8 @@ export default function CardComponent({ card, selected, onClick, onContextMenu, 
       >
         {isJoker ? (
           <span className="joker-face">
-            <span style={{ fontSize: center }}>{card.rank === Rank.BigJoker ? '★' : '☆'}</span>
+            <span className="joker-crown" style={{ fontSize: center }}>{card.rank === Rank.BigJoker ? '♛' : '♞'}</span>
+            <span className="joker-title">{jokerName}</span>
           </span>
         ) : (
           <span style={{ fontSize: center }}>{suitSymbol}</span>

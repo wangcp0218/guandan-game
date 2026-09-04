@@ -29,6 +29,7 @@ export class GameRoom {
   turnTimer: ReturnType<typeof setTimeout> | null = null;
   recentActions: AiRecentAction[] = [];
   roundNumber: number = 0;
+  teamScores: [number, number] = [0, 0];
   aiModelSelection: AiModelSelection;
 
   constructor(
@@ -217,6 +218,7 @@ export class GameRoom {
       spectators: this.getSpectatorList(),
       phase: GamePhase.Waiting,
       currentLevel: this.currentLevel,
+      teamScores: [...this.teamScores],
       players: this.players.map((p, i) => ({
         id: p.id,
         name: p.name,
@@ -252,6 +254,7 @@ export class GameRoom {
       spectators: this.getSpectatorList(),
       phase: GamePhase.Waiting,
       currentLevel: this.currentLevel,
+      teamScores: [...this.teamScores],
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -488,6 +491,8 @@ export class GameRoom {
       winnerLevelDelta: delta,
     };
 
+    this.teamScores[winnerTeam]++;
+
     if (winnerTeam === 0) {
       this.currentLevel += delta;
     }
@@ -583,6 +588,7 @@ export class GameRoom {
   broadcastState() {
     if (!this.state) return;
     this.state.spectators = this.getSpectatorList();
+    this.state.teamScores = [...this.teamScores];
     this.emitToAll('game_state', this.state);
   }
 
