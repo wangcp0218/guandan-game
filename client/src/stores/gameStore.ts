@@ -36,6 +36,7 @@ interface GameStore {
   setMySeatIndex: (idx: number) => void;
   setMyCards: (cards: Card[]) => void;
   toggleCardSelection: (cardId: number) => void;
+  toggleCardStackSelection: (cardIds: number[]) => void;
   clearSelection: () => void;
   addMessage: (msg: ChatMessage) => void;
   setRoundResult: (result: RoundResult | null) => void;
@@ -60,6 +61,16 @@ export const useGameStore = create<GameStore>((set) => ({
       const next = new Set(s.selectedCardIds);
       if (next.has(cardId)) next.delete(cardId);
       else next.add(cardId);
+      return { selectedCardIds: next };
+    }),
+  toggleCardStackSelection: (cardIds) =>
+    set((s) => {
+      const next = new Set(s.selectedCardIds);
+      const allSelected = cardIds.every((cardId) => next.has(cardId));
+      for (const cardId of cardIds) {
+        if (allSelected) next.delete(cardId);
+        else next.add(cardId);
+      }
       return { selectedCardIds: next };
     }),
   clearSelection: () => set({ selectedCardIds: new Set() }),

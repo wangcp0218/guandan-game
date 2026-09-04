@@ -90,7 +90,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   --hand-card-rank-size: var(--game-card-rank-size);
   --hand-card-suit-size: var(--game-card-suit-size);
   --hand-card-center-size: var(--game-card-center-size);
-  --hand-stack-rise: clamp(29px, 3vw, 56px);
+  --hand-stack-rise: clamp(36px, 3.7vw, 64px);
   --hand-column-step: clamp(54px, 5.6vw, 108px);
   --hand-column-min: 38px;
   display: flex;
@@ -145,7 +145,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 .playing-card.is-selected,
 .playing-card.is-selected:hover {
   z-index: 200;
-  transform: translateY(-18px);
+  transform: translateY(-12px);
   border: 3px solid #f2bd22;
   box-shadow: 0 0 0 3px rgba(242,189,34,0.28), 0 8px 16px rgba(0,0,0,0.38);
 }

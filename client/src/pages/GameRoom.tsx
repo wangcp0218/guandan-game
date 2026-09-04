@@ -14,7 +14,7 @@ export default function GameRoom() {
   const { userId, isLoggedIn, logout } = useAuthStore();
   const {
     gameState, setGameState, mySeatIndex, setMySeatIndex,
-    myCards, setMyCards, selectedCardIds, toggleCardSelection, clearSelection,
+    myCards, setMyCards, selectedCardIds, toggleCardSelection, toggleCardStackSelection, clearSelection,
     messages, addMessage, roundResult, setRoundResult, reset,
   } = useGameStore();
 
@@ -361,6 +361,7 @@ export default function GameRoom() {
             cards={myCards}
             selectedIds={selectedCardIds}
             onToggle={toggleCardSelection}
+            onToggleStack={toggleCardStackSelection}
             currentLevel={currentLevel}
           />
         </div>

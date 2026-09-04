@@ -32,6 +32,7 @@ interface Props {
   card: Card;
   selected?: boolean;
   onClick?: () => void;
+  onContextMenu?: () => void;
   faceDown?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'table' | 'hand';
   isLevelCard?: boolean;
@@ -45,7 +46,7 @@ interface CardDimensions {
   cornerSuit: React.CSSProperties['fontSize'];
 }
 
-export default function CardComponent({ card, selected, onClick, faceDown, size = 'md', isLevelCard }: Props) {
+export default function CardComponent({ card, selected, onClick, onContextMenu, faceDown, size = 'md', isLevelCard }: Props) {
   const dims: Record<NonNullable<Props['size']>, CardDimensions> = {
     sm: { w: 36, h: 50, center: 13, corner: 8, cornerSuit: 7 },
     md: { w: 52, h: 72, center: 18, corner: 11, cornerSuit: 9 },
@@ -93,6 +94,10 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
     <div
       className={`playing-card playing-card--${size}${selected ? ' is-selected' : ''}${isLevelCard ? ' is-level-card' : ''}`}
       onClick={onClick}
+      onContextMenu={onContextMenu ? (event) => {
+        event.preventDefault();
+        onContextMenu();
+      } : undefined}
       role={onClick ? 'button' : undefined}
       aria-pressed={onClick ? !!selected : undefined}
       aria-label={`${isJoker ? jokerName : `${display}${suitSymbol}`}${isLevelCard ? '，级牌' : ''}`}

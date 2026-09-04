@@ -6,6 +6,7 @@ interface Props {
   cards: Card[];
   selectedIds: Set<number>;
   onToggle: (id: number) => void;
+  onToggleStack: (ids: number[]) => void;
   currentLevel: number;
 }
 
@@ -14,7 +15,7 @@ function stackOffset(index: number) {
   return `calc(${Array.from({ length: index }, () => 'var(--hand-stack-rise)').join(' + ')})`;
 }
 
-export default function HandCards({ cards, selectedIds, onToggle, currentLevel }: Props) {
+export default function HandCards({ cards, selectedIds, onToggle, onToggleStack, currentLevel }: Props) {
   if (cards.length === 0) return null;
 
   const groups: Card[][] = [];
@@ -64,6 +65,7 @@ export default function HandCards({ cards, selectedIds, onToggle, currentLevel }
                   card={card}
                   selected={selected}
                   onClick={() => onToggle(card.id)}
+                  onContextMenu={() => onToggleStack(group.map(({ id }) => id))}
                   isLevelCard={card.rank === currentLevel}
                   size="hand"
                 />
