@@ -437,6 +437,8 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   align-items: center;
   gap: 8px;
   min-width: 0;
+  position: relative;
+  z-index: 32;
 }
 
 .game-play-actions {
@@ -490,6 +492,20 @@ input::placeholder { color: rgba(255,255,255,0.5); }
     height: 210px;
     transform: scale(.86);
     transform-origin: right top;
+  }
+
+  /* The compact self card occupies the lower-left corner on short screens.
+     Keep the turn indicator in the otherwise unused top-left space. */
+  .game-turn-status {
+    position: fixed;
+    top: 12px;
+    left: 16px;
+    z-index: 32;
+    width: fit-content;
+    padding: 5px 8px;
+    border-radius: 6px;
+    background: rgba(4, 38, 23, .72);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, .22);
   }
 }
 

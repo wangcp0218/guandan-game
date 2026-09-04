@@ -9,10 +9,9 @@ export class RoomManager {
     name: string,
     ownerId: string,
     password: string = '',
-    aiCount: number = 0,
     aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
   ): GameRoom {
-    const room = new GameRoom(name, ownerId, password, aiCount, aiModelSelection);
+    const room = new GameRoom(name, ownerId, password, aiModelSelection);
     this.rooms.set(room.id, room);
     return room;
   }

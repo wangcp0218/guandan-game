@@ -97,17 +97,17 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    socket.on('create_room', (data: { name: string; password?: string; aiCount?: number; aiProvider?: AiProvider; aiModel?: string }) => {
+    socket.on('create_room', (data: { name: string; password?: string; aiProvider?: AiProvider; aiModel?: string }) => {
       if (!socket.userId) {
         socket.emit('error', { message: '请先登录' });
         return;
       }
       const aiModelSelection = normalizeAiSelection(data.aiProvider, data.aiModel);
-      if ((data.aiCount || 0) > 0 && !aiModelSelection.model) {
+      if (!aiModelSelection.model) {
         socket.emit('error', { message: '请选择 AI 模型' });
         return;
       }
-      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', data.aiCount || 0, aiModelSelection);
+      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', aiModelSelection);
       socket.emit('room_created', room.toRoomInfo());
       socket.emit('room_list', roomManager.getRoomList());
     });

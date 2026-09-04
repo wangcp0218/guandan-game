@@ -29,20 +29,17 @@ export class GameRoom {
   turnTimer: ReturnType<typeof setTimeout> | null = null;
   recentActions: AiRecentAction[] = [];
   roundNumber: number = 0;
-  aiCount: number = 0;
   aiModelSelection: AiModelSelection;
 
   constructor(
     name: string,
     ownerId: string,
     password: string = '',
-    aiCount: number = 0,
     aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
   ) {
     this.id = uuidv4();
     this.name = name;
     this.password = password;
-    this.aiCount = aiCount;
     this.aiModelSelection = aiModelSelection;
     this.ownerId = ownerId;
   }
@@ -170,9 +167,6 @@ export class GameRoom {
       return { success: false, error: '牌局已经开始' };
     }
     if (ownerId !== this.ownerId) return { success: false, error: '只有房主可以开始牌局' };
-    if (this.players.length + this.aiCount < MAX_PLAYERS) {
-      return { success: false, error: `人数不足，还需 ${MAX_PLAYERS - this.players.length - this.aiCount} 位真人玩家` };
-    }
     this.fillWithAI();
     if (!this.canStart()) return { success: false, error: '人数不足，无法开始牌局' };
     this.lockSeatsForGame();
@@ -183,11 +177,10 @@ export class GameRoom {
   fillWithAI() {
     const needed = MAX_PLAYERS - this.players.length;
     const aiNames = ['AI小明', 'AI小红', 'AI小刚', 'AI小亮'];
-    for (let i = 0; i < Math.min(needed, this.aiCount); i++) {
+    for (let i = 0; i < needed; i++) {
       const aiId = `ai_${this.id}_${i}`;
       this.addPlayer(aiId, aiNames[i] || `AI${i+1}`, this.currentLevel, null, true);
     }
-    this.aiCount = 0;
     if (!this.state || this.state.phase === GamePhase.Waiting) {
       this.syncWaitingState();
     }
@@ -638,7 +631,7 @@ export class GameRoom {
       maxPlayers: MAX_PLAYERS,
       level: this.currentLevel,
       hasPassword: !!this.password,
-      aiCount: this.aiCount + this.players.filter(p => p.isAI).length,
+      aiCount: this.players.filter(p => p.isAI).length,
       aiProvider: this.aiModelSelection.provider,
       aiModel: this.aiModelSelection.model,
     };
