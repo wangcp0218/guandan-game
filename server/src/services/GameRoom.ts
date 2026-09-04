@@ -574,8 +574,8 @@ export class GameRoom {
         return { success: true };
       }
 
-      // A finished player cannot take another turn, so the next active player leads freely.
-      this.clearCurrentTrick();
+      // Keep the finishing play on the table. If nobody can beat it, the
+      // finishing player's partner catches the trick and leads next.
       this.advanceTurn();
       this.broadcastState();
       this.startTurn();
@@ -610,11 +610,18 @@ export class GameRoom {
     });
     this.broadcastEvent('player_pass', { playerId });
 
-    if (this.state.passCount >= this.getPassesNeededToClearTrick()) {
+    const trickWinnerIndex = this.state.lastPlayPlayerIndex;
+    const trickWinnerFinished = this.hasPlayerFinished(trickWinnerIndex);
+    const trickCleared = this.state.passCount >= this.getPassesNeededToClearTrick();
+    if (trickCleared) {
       this.clearCurrentTrick();
     }
 
-    this.advanceTurn();
+    if (trickCleared && trickWinnerFinished) {
+      this.state.currentPlayerIndex = this.getCatchWindPlayerIndex(trickWinnerIndex);
+    } else {
+      this.advanceTurn();
+    }
     this.broadcastState();
     this.startTurn();
     return { success: true };
@@ -634,7 +641,26 @@ export class GameRoom {
   }
 
   private getPassesNeededToClearTrick(): number {
-    return Math.max(1, this.getActivePlayerCount() - 1);
+    const lastPlayerFinished = this.hasPlayerFinished(this.state?.lastPlayPlayerIndex ?? -1);
+    return Math.max(1, this.getActivePlayerCount() - (lastPlayerFinished ? 0 : 1));
+  }
+
+  private hasPlayerFinished(playerIndex: number): boolean {
+    if (playerIndex < 0 || playerIndex >= this.players.length) return false;
+    return this.rankings.some(ranking => ranking.playerId === this.players[playerIndex].id);
+  }
+
+  private getCatchWindPlayerIndex(finishedPlayerIndex: number): number {
+    const partnerIndex = (finishedPlayerIndex + 2) % MAX_PLAYERS;
+    if (!this.hasPlayerFinished(partnerIndex)) return partnerIndex;
+
+    // The partner may already have gone out. In that case continue clockwise
+    // from the partner to the first player who is still in the round.
+    let next = (partnerIndex + 1) % MAX_PLAYERS;
+    while (this.hasPlayerFinished(next)) {
+      next = (next + 1) % MAX_PLAYERS;
+    }
+    return next;
   }
 
   private clearCurrentTrick() {
