@@ -107,7 +107,8 @@ export interface GameState {
   spectators: SpectatorInfo[];
   phase: GamePhase;
   currentLevel: number;
-  teamScores: [number, number];
+  teamLevels: [number, number];
+  leadingTeam: 0 | 1;
   players: PlayerInfo[];
   currentPlayerIndex: number;
   lastPlay: CardPattern | null;

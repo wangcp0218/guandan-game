@@ -202,9 +202,11 @@ export default function GameRoom() {
   const currentLevel = gameState?.currentLevel || 2;
   const isRoomOwner = gameState?.ownerId === userId;
   const viewingTeam = displaySeatIndex % 2;
-  const [teamAScore, teamBScore] = gameState?.teamScores || [0, 0];
-  const ownScore = viewingTeam === 0 ? teamAScore : teamBScore;
-  const opponentScore = viewingTeam === 0 ? teamBScore : teamAScore;
+  const [teamALevel, teamBLevel] = gameState?.teamLevels || [2, 2];
+  const ownLevel = viewingTeam === 0 ? teamALevel : teamBLevel;
+  const opponentLevel = viewingTeam === 0 ? teamBLevel : teamALevel;
+  const leadingTeam = gameState?.leadingTeam || 0;
+  const ownIsLeading = leadingTeam === viewingTeam;
 
   const getPlayerForPosition = (posIdx: number): PlayerInfoType | null => {
     if (!gameState) return null;
@@ -231,17 +233,17 @@ export default function GameRoom() {
   return (
     <div className="game-room" style={styles.container}>
       <div style={styles.table}>
-        <div className="duel-scoreboard" aria-label="本房对局比分">
-          <div className="duel-score-team duel-score-team--mine">
+        <div className="duel-scoreboard" aria-label="双方当前级牌">
+          <div className={`duel-score-team ${isSpectator ? (leadingTeam === 0 ? 'is-leading' : 'is-trailing') : (ownIsLeading ? 'is-leading' : 'is-trailing')}`}>
             <span>{isSpectator ? '队伍 A' : '我方'}</span>
-            <strong>{isSpectator ? teamAScore : ownScore}</strong>
+            <strong>{isSpectator ? teamALevel : ownLevel}<em>级</em></strong>
           </div>
           <span className="duel-score-vs">VS</span>
-          <div className="duel-score-team duel-score-team--opponent">
+          <div className={`duel-score-team ${isSpectator ? (leadingTeam === 1 ? 'is-leading' : 'is-trailing') : (ownIsLeading ? 'is-trailing' : 'is-leading')}`}>
             <span>{isSpectator ? '队伍 B' : '对方'}</span>
-            <strong>{isSpectator ? teamBScore : opponentScore}</strong>
+            <strong>{isSpectator ? teamBLevel : opponentLevel}<em>级</em></strong>
           </div>
-          <div className="duel-score-meta">第 {gameState?.roundNumber || 0} 局 · {currentLevel} 级</div>
+          <div className="duel-score-meta">第 {gameState?.roundNumber || 0} 局 · {isSpectator ? `队伍 ${leadingTeam === 0 ? 'A' : 'B'} 在台` : `${ownIsLeading ? '我方' : '对方'}在台`}</div>
         </div>
         <div className="room-exit-actions">
           <button
@@ -360,9 +362,6 @@ export default function GameRoom() {
             </div>
           ) : (
             <div style={{ textAlign: 'center' }}>
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 8 }}>
-                等级 {currentLevel}
-              </p>
               {getPlayerForPosition(0) && (
                 <PlayArea
                   action={playerActions[getPlayerForPosition(0)!.id]}

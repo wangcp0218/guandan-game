@@ -82,13 +82,35 @@ body {
 }
 
 .duel-score-team strong {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  min-width: 35px;
+  padding: 2px 4px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  background: rgba(255,255,255,.1);
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 25px;
   line-height: 1;
 }
 
-.duel-score-team--mine { color: #8fcaff; }
-.duel-score-team--opponent { color: #ff978f; }
+.duel-score-team strong em {
+  margin-left: 1px;
+  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.duel-score-team.is-leading { color: #ff6e65; }
+.duel-score-team.is-leading strong {
+  background: linear-gradient(145deg, rgba(213, 56, 48, .35), rgba(116, 25, 24, .55));
+  box-shadow: 0 0 10px rgba(229, 74, 59, .22);
+}
+
+.duel-score-team.is-trailing { color: #a5adb1; }
+.duel-score-team.is-trailing strong { background: rgba(113, 124, 130, .24); }
 
 .duel-score-vs {
   color: rgba(255,255,255,.56);

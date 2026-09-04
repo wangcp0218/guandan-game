@@ -29,7 +29,8 @@ export class GameRoom {
   turnTimer: ReturnType<typeof setTimeout> | null = null;
   recentActions: AiRecentAction[] = [];
   roundNumber: number = 0;
-  teamScores: [number, number] = [0, 0];
+  teamLevels: [Rank, Rank] = [Rank.Two, Rank.Two];
+  leadingTeam: 0 | 1 = 0;
   aiModelSelection: AiModelSelection;
 
   constructor(
@@ -218,7 +219,8 @@ export class GameRoom {
       spectators: this.getSpectatorList(),
       phase: GamePhase.Waiting,
       currentLevel: this.currentLevel,
-      teamScores: [...this.teamScores],
+      teamLevels: [...this.teamLevels],
+      leadingTeam: this.leadingTeam,
       players: this.players.map((p, i) => ({
         id: p.id,
         name: p.name,
@@ -254,7 +256,8 @@ export class GameRoom {
       spectators: this.getSpectatorList(),
       phase: GamePhase.Waiting,
       currentLevel: this.currentLevel,
-      teamScores: [...this.teamScores],
+      teamLevels: [...this.teamLevels],
+      leadingTeam: this.leadingTeam,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -491,12 +494,10 @@ export class GameRoom {
       winnerLevelDelta: delta,
     };
 
-    this.teamScores[winnerTeam]++;
-
-    if (winnerTeam === 0) {
-      this.currentLevel += delta;
-    }
-    if (this.currentLevel > Rank.Ace) this.currentLevel = Rank.Ace;
+    this.teamLevels[winnerTeam] = Math.min(Rank.Ace, this.teamLevels[winnerTeam] + delta) as Rank;
+    this.leadingTeam = winnerTeam as 0 | 1;
+    this.currentLevel = this.teamLevels[winnerTeam];
+    this.state.currentLevel = this.currentLevel;
 
     this.state.phase = GamePhase.RoundEnd;
     this.broadcastEvent('round_end', result);
@@ -588,7 +589,8 @@ export class GameRoom {
   broadcastState() {
     if (!this.state) return;
     this.state.spectators = this.getSpectatorList();
-    this.state.teamScores = [...this.teamScores];
+    this.state.teamLevels = [...this.teamLevels];
+    this.state.leadingTeam = this.leadingTeam;
     this.emitToAll('game_state', this.state);
   }
 
