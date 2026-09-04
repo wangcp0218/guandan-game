@@ -275,7 +275,7 @@ export default function GameRoom() {
         </div>
 
         {/* Center - play area */}
-        <div style={styles.centerArea}>
+        <div className="game-center-play-area">
           {waiting ? (
             <div style={styles.waiting}>
               <p style={{ fontSize: 18, color: '#e6b422' }}>等待玩家加入...</p>
@@ -418,12 +418,6 @@ const styles: Record<string, React.CSSProperties> = {
   },
   playerSpot: {
     position: 'absolute',
-  },
-  centerArea: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
   },
   topAction: {
     position: 'absolute',

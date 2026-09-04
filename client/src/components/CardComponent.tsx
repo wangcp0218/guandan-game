@@ -33,7 +33,7 @@ interface Props {
   selected?: boolean;
   onClick?: () => void;
   faceDown?: boolean;
-  size?: 'sm' | 'md' | 'lg' | 'hand';
+  size?: 'sm' | 'md' | 'lg' | 'table' | 'hand';
   isLevelCard?: boolean;
 }
 
@@ -50,6 +50,13 @@ export default function CardComponent({ card, selected, onClick, faceDown, size 
     sm: { w: 36, h: 50, center: 13, corner: 8, cornerSuit: 7 },
     md: { w: 52, h: 72, center: 18, corner: 11, cornerSuit: 9 },
     lg: { w: 64, h: 88, center: 22, corner: 14, cornerSuit: 11 },
+    table: {
+      w: 'var(--game-card-width)',
+      h: 'var(--game-card-height)',
+      center: 'var(--game-card-center-size)',
+      corner: 'var(--game-card-rank-size)',
+      cornerSuit: 'var(--game-card-suit-size)',
+    },
     hand: {
       w: 'var(--hand-card-width)',
       h: 'var(--hand-card-height)',

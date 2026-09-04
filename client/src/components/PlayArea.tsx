@@ -27,9 +27,9 @@ export default function PlayArea({ action, position }: Props) {
         <div
           className="seat-action-card"
           key={card.id}
-          style={{ marginLeft: index === 0 ? 0 : -13, zIndex: index + 1 }}
+          style={{ marginLeft: index === 0 ? 0 : 'calc(var(--game-card-width) * -0.24)', zIndex: index + 1 }}
         >
-          <CardComponent card={card} size="md" />
+          <CardComponent card={card} size="table" />
         </div>
       ))}
     </div>

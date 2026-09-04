@@ -13,6 +13,12 @@
   --player2: #3498db;
   --player3: #2ecc71;
   --player4: #f39c12;
+  /* One balanced card size is shared by the hand and every played-card area. */
+  --game-card-width: clamp(72px, 4.7vw, 96px);
+  --game-card-height: clamp(104px, 6.75vw, 138px);
+  --game-card-rank-size: clamp(28px, 1.85vw, 38px);
+  --game-card-suit-size: clamp(21px, 1.4vw, 29px);
+  --game-card-center-size: clamp(44px, 3vw, 62px);
 }
 
 body {
@@ -79,11 +85,11 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 
 /* Screenshot-inspired hand: ranks form columns and matching ranks stack upward. */
 .hand-cards {
-  --hand-card-width: clamp(70px, 7vw, 136px);
-  --hand-card-height: clamp(102px, 9.8vw, 194px);
-  --hand-card-rank-size: clamp(27px, 2.75vw, 53px);
-  --hand-card-suit-size: clamp(21px, 2.15vw, 42px);
-  --hand-card-center-size: clamp(44px, 4.6vw, 90px);
+  --hand-card-width: var(--game-card-width);
+  --hand-card-height: var(--game-card-height);
+  --hand-card-rank-size: var(--game-card-rank-size);
+  --hand-card-suit-size: var(--game-card-suit-size);
+  --hand-card-center-size: var(--game-card-center-size);
   --hand-stack-rise: clamp(29px, 3vw, 56px);
   --hand-column-step: clamp(54px, 5.6vw, 108px);
   --hand-column-min: 38px;
@@ -271,7 +277,15 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 
 .seat-action-card {
   position: relative;
-  flex: 0 0 52px;
+  flex: 0 0 var(--game-card-width);
+}
+
+.game-center-play-area {
+  position: absolute;
+  top: 39%;
+  left: 50%;
+  z-index: 10;
+  transform: translate(-50%, -50%);
 }
 
 .seat-action-pass {
@@ -320,7 +334,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 24px;
 }
 
 .game-turn-status {
@@ -342,9 +356,16 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 @media (max-width: 900px), (max-height: 650px) {
+  :root {
+    --game-card-width: clamp(64px, 8vw, 78px);
+    --game-card-height: clamp(92px, 11.5vw, 112px);
+    --game-card-rank-size: clamp(25px, 3.2vw, 31px);
+    --game-card-suit-size: clamp(19px, 2.4vw, 24px);
+    --game-card-center-size: clamp(40px, 5vw, 49px);
+  }
+
   .seat-action-cards {
-    transform: scale(.86);
-    transform-origin: center;
+    padding: 4px 6px;
   }
 
   .seat-action-pass {
@@ -379,17 +400,24 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 
 @media (max-height: 720px) {
   .hand-cards {
-    --hand-card-width: clamp(62px, 6.2vw, 94px);
-    --hand-card-height: clamp(90px, 8.8vw, 134px);
-    --hand-card-rank-size: clamp(24px, 2.35vw, 36px);
-    --hand-card-suit-size: clamp(18px, 1.8vw, 28px);
-    --hand-card-center-size: clamp(38px, 3.9vw, 60px);
     --hand-stack-rise: clamp(24px, 2.45vw, 38px);
     --hand-column-step: clamp(48px, 5vw, 76px);
+  }
+
+  .game-center-play-area {
+    top: 35%;
   }
 }
 
 @media (max-width: 760px) {
+  :root {
+    --game-card-width: 64px;
+    --game-card-height: 94px;
+    --game-card-rank-size: 25px;
+    --game-card-suit-size: 19px;
+    --game-card-center-size: 40px;
+  }
+
   .game-action-bar {
     grid-template-columns: 1fr;
     gap: 6px;
@@ -409,11 +437,6 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   }
 
   .hand-cards {
-    --hand-card-width: 64px;
-    --hand-card-height: 94px;
-    --hand-card-rank-size: 25px;
-    --hand-card-suit-size: 19px;
-    --hand-card-center-size: 40px;
     --hand-stack-rise: 25px;
     --hand-column-step: 48px;
     --hand-column-min: 30px;
