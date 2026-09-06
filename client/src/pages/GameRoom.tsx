@@ -11,6 +11,7 @@ import SpectatorHand from '../components/SpectatorHand';
 import CardComponent from '../components/CardComponent';
 
 export default function GameRoom() {
+  const patternName = (type: string) => ({ single: '单张', pair: '对子', triple: '三张', triple_pair: '三带二', straight: '顺子', consecutive_pair: '三连对', plane: '二连三', flush_straight: '同花顺', king_bomb: '四王炸' }[type] || type.replace('bomb', '炸弹·'));
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();
   const spectatorMode = searchParams.get('spectator') === '1';
@@ -28,6 +29,7 @@ export default function GameRoom() {
   const [selectedSeatPlayerId, setSelectedSeatPlayerId] = useState<string | null>(null);
   const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
   const [tributeNotice, setTributeNotice] = useState('');
+  const [declarations, setDeclarations] = useState<CardPattern[]>([]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -42,8 +44,10 @@ export default function GameRoom() {
 
     const onGameState = (state: GameState) => {
       setGameState(state);
+      setDeclarations([]);
       setWaiting(state.phase === 'waiting');
-      if (state.phase !== 'round_end') setRoundResult(null);
+      if (state.phase !== 'round_end' && state.phase !== 'game_over') setRoundResult(null);
+      else if (state.roundResult) setRoundResult(state.roundResult);
 
       setPlayerActions(previous => {
         if (!state.lastPlay || state.lastPlayPlayerIndex < 0 || state.passCount >= 3) return {};
@@ -186,6 +190,13 @@ export default function GameRoom() {
 
     const selected = myCards.filter(c => selectedCardIds.has(c.id));
     const socket = getSocket();
+    if (selected.length > 1 && selected.some(card => card.rank === gameState?.currentLevel && card.suit === 'H')) {
+      socket?.emit('declare_play', { cards: selected }, (options: CardPattern[]) => {
+        if (!options.length) setErrorMsg('没有合法的逢人配组合可以出牌');
+        else setDeclarations(options);
+      });
+      return;
+    }
     socket?.emit('play_cards', { cards: selected });
     clearSelection();
   };
@@ -242,7 +253,7 @@ export default function GameRoom() {
     : null;
   const canReturnSelectedCard = !!selectedReturnCard
     && selectedReturnCard.rank <= 10
-    && selectedReturnCard.rank !== currentLevel;
+    ;
   const turnMessage = gameState?.phase === 'return_tribute'
     ? (isMyReturnTribute ? '请选择一张10及以下的牌还贡' : '等待对方还贡...')
     : (isMyTurn ? '轮到你了!' : '等待中...');
@@ -538,11 +549,19 @@ export default function GameRoom() {
         </div>
 
         {/* Round result modal */}
+        {declarations.length > 0 && <div style={styles.modal}><div style={{ ...styles.modalContent, maxHeight: '80vh', overflowY: 'auto' }}>
+          <h3>确认逢人配替代方式</h3>
+          {declarations.map(pattern => <button key={`${pattern.type}:${pattern.rank}`} className="btn-primary" style={{ display: 'block', margin: '8px auto' }} onClick={() => {
+            getSocket()?.emit('play_cards', { cards: pattern.cards, declaration: { type: pattern.type, rank: pattern.rank } });
+            setDeclarations([]); clearSelection();
+          }}>{patternName(pattern.type)}（比较点数 {pattern.rank}）：{pattern.substitutions?.map(card => `${({ S: '♠', H: '♥', C: '♣', D: '♦' })[card.suit]}${card.rank}`).join('、')}</button>)}
+          <button className="btn-secondary" onClick={() => setDeclarations([])}>取消</button>
+        </div></div>}
         {roundResult && !isSpectator && (
           <div style={styles.modal}>
             <div style={styles.modalContent}>
               <h2 style={{ color: '#e6b422', marginBottom: 16 }}>
-                本轮结束 - {roundResult.winnerTeam === mySeatIndex % 2 ? '你赢了!' : '你输了'}
+                {gameState?.phase === 'game_over' ? '比赛结束' : '本轮结束'} - {(roundResult.matchWinnerTeam ?? roundResult.winnerTeam) === mySeatIndex % 2 ? '你赢了!' : '你输了'}
               </h2>
               <p style={{ marginBottom: 8 }}>
                 排名: {roundResult.rankings.map(r => {
@@ -552,6 +571,8 @@ export default function GameRoom() {
               </p>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 }}>
                 胜方升 {roundResult.winnerLevelDelta} 级
+                {roundResult.levelPenalty ? `，触发地方规则退${roundResult.levelPenalty}级` : ''}
+                {roundResult.endReason ? `；${roundResult.endReason}` : ''}
               </p>
               <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
                 <button
@@ -561,7 +582,7 @@ export default function GameRoom() {
                     const socket = getSocket();
                     socket?.emit('start_next_round', { roomId });
                   }}
-                  style={{ padding: '10px 30px', fontSize: 15 }}
+                  style={{ padding: '10px 30px', fontSize: 15, display: gameState?.phase === 'game_over' ? 'none' : undefined }}
                 >
                   下一局
                 </button>

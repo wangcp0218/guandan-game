@@ -110,6 +110,10 @@ export default function Lobby() {
     loadAiModels(aiProvider);
   };
 
+  const [maxRounds, setMaxRounds] = useState(0);
+  const [maxMinutes, setMaxMinutes] = useState(0);
+  const [tripleDoublePenalty, setTripleDoublePenalty] = useState(false);
+
   const createRoom = () => {
     if (!roomName.trim()) {
       setInfo('请输入房间名称');
@@ -125,6 +129,7 @@ export default function Lobby() {
       password: roomPass,
       aiProvider,
       aiModel,
+      maxRounds, maxMinutes, tripleDoublePenalty,
     });
   };
 
@@ -194,6 +199,9 @@ export default function Lobby() {
                   onChange={(e) => setRoomPass(e.target.value)}
                   style={styles.input}
                 />
+                <label style={styles.fieldLabel}>比赛最多副数（0不限）<input type="number" min="0" max="10000" value={maxRounds} onChange={e => setMaxRounds(Number(e.target.value))} /></label>
+                <label style={styles.fieldLabel}>比赛分钟数（0不限，打完当前副结算）<input type="number" min="0" max="10000" value={maxMinutes} onChange={e => setMaxMinutes(Number(e.target.value))} /></label>
+                <label style={styles.fieldLabel}><span><input type="checkbox" checked={tripleDoublePenalty} onChange={e => setTripleDoublePenalty(e.target.checked)} />连续三副双上退2级（地方玩法）</span></label>
                 <label style={styles.fieldLabel}>
                   <span>模型提供商</span>
                   <select
@@ -373,6 +381,8 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 100,
   },
   modalContent: {
+    maxHeight: '90vh',
+    overflowY: 'auto',
     background: '#1a4a2e',
     borderRadius: 14,
     padding: 24,

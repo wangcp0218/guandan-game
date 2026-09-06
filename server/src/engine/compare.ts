@@ -5,6 +5,7 @@ import { isBomb, isKingBomb, isFlushStraight } from './patterns';
 const bombPatterns = new Set([
   PatternType.Bomb4, PatternType.Bomb5, PatternType.Bomb6,
   PatternType.Bomb7, PatternType.Bomb8, PatternType.KingBomb,
+  PatternType.Bomb9, PatternType.Bomb10,
   PatternType.FlushStraight,
 ]);
 
@@ -13,10 +14,10 @@ export function isBombPattern(pattern: CardPattern): boolean {
 }
 
 function bombPower(pattern: CardPattern, currentLevel: number): number {
-  if (pattern.type === PatternType.KingBomb) return 9999;
+  if (pattern.type === PatternType.KingBomb) return 100000;
   if (pattern.type === PatternType.FlushStraight) {
     // 标准掼蛋：同花顺介于五张炸弹与六张炸弹之间。
-    const er = effectiveRank(pattern.rank, currentLevel);
+    const er = pattern.rank;
     return 5500 + er;
   }
   const bombNum = parseInt(pattern.type.replace('bomb', ''), 10);
@@ -24,7 +25,8 @@ function bombPower(pattern: CardPattern, currentLevel: number): number {
 }
 
 function normalPower(pattern: CardPattern, currentLevel: number): number {
-  return pattern.length * 100 + effectiveRank(pattern.rank, currentLevel);
+  const sequence = [PatternType.Straight, PatternType.ConsecutivePair, PatternType.Plane].includes(pattern.type);
+  return pattern.length * 100 + (sequence ? pattern.rank : effectiveRank(pattern.rank, currentLevel));
 }
 
 export function canBeat(
@@ -33,6 +35,7 @@ export function canBeat(
   currentLevel: number
 ): boolean {
   if (!lastPattern) return true;
+  if (lastPattern.type === PatternType.KingBomb) return false;
 
   const newIsBomb = isBombPattern(newPattern);
   const lastIsBomb = isBombPattern(lastPattern);

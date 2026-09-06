@@ -76,7 +76,7 @@ export default function PlayerInfoComponent({ player, position, isCurrent, isMe,
         {player.name} {isMe ? '(我)' : ''}
       </span>
       <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-        Lv.{player.level} | {player.cardCount}张
+        Lv.{player.level} | {player.cardCount === 0 ? '已出完' : player.reportedCardCount !== undefined ? `报牌：${player.reportedCardCount}张（首次）` : '未报牌'}
       </span>
     </div>
   );

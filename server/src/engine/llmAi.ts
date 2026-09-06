@@ -127,6 +127,8 @@ const PATTERN_NAMES: Record<PatternType, string> = {
   [PatternType.Bomb6]: '六炸',
   [PatternType.Bomb7]: '七炸',
   [PatternType.Bomb8]: '八炸',
+  [PatternType.Bomb9]: '九炸',
+  [PatternType.Bomb10]: '十炸',
   [PatternType.KingBomb]: '天王炸',
   [PatternType.FlushStraight]: '同花顺',
 };

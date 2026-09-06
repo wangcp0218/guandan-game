@@ -83,7 +83,7 @@ export function isConsecutivePair(cards: Card[]): boolean {
 }
 
 export function isPlane(cards: Card[]): boolean {
-  if (cards.length < 6 || cards.length % 3 !== 0) return false;
+  if (cards.length !== 6) return false;
   const tripleCount = cards.length / 3;
   if (tripleCount < 2) return false;
 
@@ -104,34 +104,9 @@ export function isPlane(cards: Card[]): boolean {
   return consecutiveHighRank(triples as Rank[]) !== null;
 }
 
-export function isPlaneWings(cards: Card[]): boolean {
-  const tripleCount = Math.floor(cards.length / 5);
-  if (cards.length < 10 || cards.length % 5 !== 0) return false;
-  if (tripleCount < 2) return false;
-
-  if (cards.some(isJoker)) return false;
-
-  const rankCount = new Map<number, number>();
-  for (const c of cards) {
-    rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
-  }
-
-  const triples: number[] = [];
-  const pairs: number[] = [];
-
-  for (const [rank, count] of rankCount) {
-    if (count === 3) triples.push(rank);
-    else if (count === 2) pairs.push(rank);
-    else return false;
-  }
-
-  if (triples.length !== tripleCount || pairs.length !== tripleCount) return false;
-
-  return consecutiveHighRank(triples as Rank[]) !== null;
-}
 
 export function isBomb(cards: Card[]): boolean {
-  if (cards.length < 4 || cards.length > 8) return false;
+  if (cards.length < 4 || cards.length > 10) return false;
   const rank = cards[0].rank;
   return cards.every(c => c.rank === rank);
 }
@@ -298,50 +273,22 @@ function tryTriplePairWithWilds(
 ): CardPattern | null {
   if (regulars.length + wildCount !== 5) return null;
 
-  const rankCount = new Map<number, number>();
-  for (const c of regulars) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
-
-  for (const [tripleRank, count] of rankCount.entries()) {
-    const extraFromTriple = Math.max(0, count - 3);
-    const neededForTriple = Math.max(0, 3 - count);
-    const remainingWilds = wildCount - neededForTriple;
-
-    if (remainingWilds < 0) continue;
-
-    for (const [pairRank, pairCount] of rankCount.entries()) {
-      if (pairRank === tripleRank) {
-        const availAfterTriple = extraFromTriple;
-        if (availAfterTriple + remainingWilds >= 2) {
-          const allCards = [...regulars, ...Array(wildCount).fill(null).map(() => ({
-            id: -1, suit: Suit.Heart, rank: currentLevel as Rank,
-          }))];
-          return { type: PatternType.TriplePair, cards: allCards, rank: tripleRank as Rank, length: 5 };
-        }
-      } else {
-        if (pairCount + remainingWilds >= 2) {
-          const allCards = [...regulars, ...Array(wildCount).fill(null).map(() => ({
-            id: -1, suit: Suit.Heart, rank: currentLevel as Rank,
-          }))];
-          return { type: PatternType.TriplePair, cards: allCards, rank: tripleRank as Rank, length: 5 };
-        }
-      }
+  // Every natural card must belong to one of two distinct groups. Wildcards
+  // may fill ordinary ranks only, never a missing joker.
+  for (let triple = Rank.Two; triple <= Rank.Ace; triple++) {
+    for (let pair = Rank.Two; pair <= Rank.BigJoker; pair++) {
+      if (pair === triple || regulars.some(card => card.rank !== triple && card.rank !== pair)) continue;
+      const triples = regulars.filter(card => card.rank === triple).length;
+      const pairs = regulars.filter(card => card.rank === pair).length;
+      if (triples > 3 || pairs > 2 || (pair > Rank.Ace && pairs !== 2)) continue;
+      if (3 - triples + 2 - pairs !== wildCount) continue;
+      return { type: PatternType.TriplePair, rank: triple, length: 5,
+        cards: [...regulars, ...Array.from({ length: wildCount }, () => ({ id: -1, suit: Suit.Heart, rank: currentLevel as Rank }))] };
     }
   }
-
-  for (const [tripleRank] of rankCount.entries()) {
-    const neededForTriple = Math.max(0, 3 - rankCount.get(tripleRank)!);
-    if (neededForTriple === 0) continue;
-    const remaining = wildCount - neededForTriple;
-    if (remaining >= 0 && remaining + (rankCount.get(tripleRank)! > 3 ? rankCount.get(tripleRank)! - 3 : 0) >= 2) {
-      const allCards = [...regulars, ...Array(wildCount).fill(null).map(() => ({
-        id: -1, suit: Suit.Heart, rank: currentLevel as Rank,
-      }))];
-      return { type: PatternType.TriplePair, cards: allCards, rank: tripleRank as Rank, length: 5 };
-    }
-  }
-
   return null;
 }
+
 
 function tryPlaneWithWilds(
   regulars: Card[],
@@ -349,7 +296,7 @@ function tryPlaneWithWilds(
   totalLength: number,
   currentLevel: number
 ): CardPattern | null {
-  if (totalLength < 6 || totalLength % 3 !== 0) return null;
+  if (totalLength !== 6) return null;
   const tripleCount = totalLength / 3;
   if (tripleCount < 2) return null;
 
@@ -399,7 +346,7 @@ function tryPlaneWithWilds(
   return null;
 }
 
-export function identifyPattern(
+function identifyRawPattern(
   cards: Card[],
   currentLevel: number,
   wildCards: Card[] = []
@@ -423,7 +370,7 @@ export function identifyPattern(
     if (flushStraight) return flushStraight;
   }
 
-  if (cards.length >= 4 && cards.length <= 8) {
+  if (cards.length >= 4 && cards.length <= 10) {
     if (isBomb(allCards)) {
       const bombType = `bomb${cards.length}` as PatternType;
       return { type: bombType, cards: allCards, rank: allCards[0].rank, length: cards.length };
@@ -476,12 +423,6 @@ export function identifyPattern(
     return { type: PatternType.Plane, cards: allCards, rank: consecutiveHighRank(ranks)!, length: cards.length };
   }
 
-  if (isPlaneWings(allCards)) {
-    const rankCount = new Map<number, number>();
-    for (const c of allCards) rankCount.set(c.rank, (rankCount.get(c.rank) || 0) + 1);
-    const triples = Array.from(rankCount.entries()).filter(([, c]) => c === 3).map(([r]) => r);
-    return { type: PatternType.PlaneWings, cards: allCards, rank: consecutiveHighRank(triples as Rank[])!, length: cards.length };
-  }
 
   if (wilds.length > 0) {
     const totalLen = regulars.length + wilds.length;
@@ -502,4 +443,42 @@ export function isValidPlay(
   wildCards: Card[] = []
 ): boolean {
   return identifyPattern(cards, currentLevel, wildCards) !== null;
+}
+
+/** All distinct legal declarations, retaining the original physical card IDs. */
+export function declarePatterns(cards: Card[], level: number): CardPattern[] {
+  const wilds = cards.filter(card => isWildCard(card, level));
+  if (wilds.length > 2) return [];
+  if (wilds.length === 0 || cards.length === 1) {
+    const p = identifyRawPattern(cards, level);
+    return p ? [{ ...p, cards }] : [];
+  }
+  const found = new Map<string, CardPattern>();
+  const visit = (index: number, substitutions: Card[]) => {
+    if (index === wilds.length) {
+      const resolved = cards.map(card => substitutions.find(item => item.id === card.id) || card);
+      const pattern = identifyRawPattern(resolved, -1);
+      if (pattern) {
+        const key = `${pattern.type}:${pattern.rank}`;
+        if (!found.has(key)) found.set(key, { ...pattern, cards, substitutions: [...substitutions] });
+      }
+      return;
+    }
+    for (let rank = Rank.Two; rank <= Rank.Ace; rank++) {
+      for (const suit of [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond]) {
+        visit(index + 1, [...substitutions, { id: wilds[index].id, rank, suit }]);
+      }
+    }
+  };
+  visit(0, []);
+  return [...found.values()];
+}
+
+export function identifyPattern(cards: Card[], currentLevel: number, _wildCards: Card[] = []): CardPattern | null {
+  const pattern = identifyRawPattern(cards, currentLevel);
+  if (!pattern) return null;
+  if (cards.length > 1 && cards.some(card => isWildCard(card, currentLevel))) {
+    return declarePatterns(cards, currentLevel).find(candidate => candidate.type === pattern.type && candidate.rank === pattern.rank) || null;
+  }
+  return { ...pattern, cards };
 }

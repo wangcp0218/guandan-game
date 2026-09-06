@@ -2,7 +2,7 @@ import { AiModelSelection, Card, CardPattern, PatternType, Rank, Suit } from '..
 import { effectiveRank, sortCards, isJoker } from './card';
 import {
   identifyPattern, isBomb, isKingBomb, isFlushStraight,
-  isStraight, isConsecutivePair, isPlane, isPlaneWings,
+  isStraight, isConsecutivePair, isPlane,
   isTriplePair, isWildCard,
 } from './patterns';
 import { canBeat, isBombPattern } from './compare';
@@ -96,7 +96,7 @@ function generateConsecutivePairs(rankCounts: Map<number, Card[]>): Card[][] {
 
 function generatePlanes(rankCounts: Map<number, Card[]>): Card[][] {
   const result: Card[][] = [];
-  for (const run of buildRankRuns(2)) {
+  for (const run of buildRankRuns(2).filter(run => run.length === 2)) {
     if (run.every(rank => (rankCounts.get(rank)?.length || 0) >= 3)) {
       result.push(run.flatMap(rank => rankCounts.get(rank)!.slice(0, 3)));
     }
@@ -104,33 +104,6 @@ function generatePlanes(rankCounts: Map<number, Card[]>): Card[][] {
   return result;
 }
 
-function chooseRankGroups(ranks: number[], count: number, start = 0): number[][] {
-  if (count === 0) return [[]];
-  const result: number[][] = [];
-  for (let index = start; index <= ranks.length - count; index++) {
-    for (const rest of chooseRankGroups(ranks, count - 1, index + 1)) {
-      result.push([ranks[index], ...rest]);
-    }
-  }
-  return result;
-}
-
-function generatePlaneWings(rankCounts: Map<number, Card[]>): Card[][] {
-  const result: Card[][] = [];
-  for (const tripleRun of buildRankRuns(2)) {
-    if (!tripleRun.every(rank => (rankCounts.get(rank)?.length || 0) >= 3)) continue;
-    const pairRanks = Array.from(rankCounts.entries())
-      .filter(([rank, cards]) => !tripleRun.includes(rank as Rank) && cards.length >= 2)
-      .map(([rank]) => rank);
-    for (const pairGroup of chooseRankGroups(pairRanks, tripleRun.length)) {
-      result.push([
-        ...tripleRun.flatMap(rank => rankCounts.get(rank)!.slice(0, 3)),
-        ...pairGroup.flatMap(rank => rankCounts.get(rank)!.slice(0, 2)),
-      ]);
-    }
-  }
-  return result;
-}
 
 function generateBombs(rankCounts: Map<number, Card[]>): Card[][] {
   const result: Card[][] = [];
@@ -159,6 +132,15 @@ export function generateLegalPlays(
 ): CardPattern[] {
   const rankCounts = getRankCounts(hand);
   const allCombos: Card[][] = [];
+  const wilds = hand.filter(card => isWildCard(card, currentLevel));
+  for (const [rank, group] of rankCounts) {
+    if (rank > Rank.Ace || rank === currentLevel) continue;
+    for (let count = 1; count <= wilds.length; count++) {
+      for (let natural = 2; natural <= group.length; natural++) {
+        if (natural + count >= 4) allCombos.push([...group.slice(0, natural), ...wilds.slice(0, count)]);
+      }
+    }
+  }
 
   allCombos.push(...generateSingles(hand));
   allCombos.push(...generatePairs(rankCounts));
@@ -166,7 +148,6 @@ export function generateLegalPlays(
   allCombos.push(...generateTriplePairs(rankCounts, hand));
   allCombos.push(...generateConsecutivePairs(rankCounts));
   allCombos.push(...generatePlanes(rankCounts));
-  allCombos.push(...generatePlaneWings(rankCounts));
   allCombos.push(...generateBombs(rankCounts));
   allCombos.push(...generateStraights(hand));
 

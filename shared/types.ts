@@ -43,11 +43,14 @@ export enum PatternType {
   Bomb6 = 'bomb6',
   Bomb7 = 'bomb7',
   Bomb8 = 'bomb8',
+  Bomb9 = 'bomb9',
+  Bomb10 = 'bomb10',
   KingBomb = 'king_bomb',
   FlushStraight = 'flush_straight',
 }
 
 export interface CardPattern {
+  substitutions?: Card[];
   type: PatternType;
   cards: Card[];
   rank: Rank;
@@ -69,6 +72,7 @@ export interface PlayerInfo {
   level: number;
   seatIndex: number;
   cardCount: number;
+  reportedCardCount?: number;
   isReady: boolean;
   isOnline: boolean;
 }
@@ -112,6 +116,7 @@ export interface RoomInfo {
 }
 
 export interface GameState {
+  roundResult?: RoundResult;
   roomId: string;
   ownerId: string;
   spectators: SpectatorInfo[];
@@ -151,6 +156,9 @@ export interface ReturnTributeRequest {
 }
 
 export interface RoundResult {
+  matchWinnerTeam?: number;
+  endReason?: string;
+  levelPenalty?: number;
   rankings: { playerId: string; rank: number }[];
   winnerTeam: number;
   loserTeam: number;

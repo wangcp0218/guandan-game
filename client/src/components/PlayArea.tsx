@@ -23,6 +23,7 @@ export default function PlayArea({ action, position }: Props) {
 
   return (
     <div className={`seat-action-cards seat-action-cards--${position}`}>
+      {action.pattern.substitutions?.length ? <span style={{ position: 'absolute', bottom: '100%', color: '#ffe487', whiteSpace: 'nowrap', fontSize: 13 }}>逢人配→{action.pattern.substitutions.map(card => `${({ S: '♠', H: '♥', C: '♣', D: '♦' })[card.suit]}${card.rank}`).join('、')}</span> : null}
       {action.pattern.cards.map((card, index) => (
         <div
           className="seat-action-card"

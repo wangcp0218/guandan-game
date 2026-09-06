@@ -4,7 +4,7 @@ import {
   RoundResult, Rank, Suit, ChatMessage, AiModelSelection, SpectatorInfo, SpectatorHands, TributeExchange,
 } from '../../../shared/types';
 import { createDeck, shuffleDeck, dealCards, sortCards, isJoker, effectiveRank } from '../engine/card';
-import { identifyPattern, isValidPlay } from '../engine/patterns';
+import { identifyPattern, isValidPlay, declarePatterns } from '../engine/patterns';
 import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
 import { getTeam, getLevelDelta, canResistTribute, selectTributeCard, selectReturnTributeCard, isValidReturnTributeCard } from '../engine/rules';
 import { findBestPlay, findSmartPlay } from '../engine/ai';
@@ -31,6 +31,10 @@ export class GameRoom {
   roundNumber: number = 0;
   teamLevels: [Rank, Rank] = [Rank.Two, Rank.Two];
   leadingTeam: 0 | 1 = 0;
+  private reportedCounts = new Map<string, number>();
+  competition = { maxRounds: 0, maxMinutes: 0, tripleDoublePenalty: false };
+  private matchStartedAt = 0;
+  private consecutiveDoubles: [number, number] = [0, 0];
   aiModelSelection: AiModelSelection;
 
   constructor(
@@ -136,6 +140,8 @@ export class GameRoom {
     this.hands.clear();
     this.rankings = [];
     this.recentActions = [];
+
+    this.reportedCounts.clear();
     if (this.turnTimer) {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
@@ -203,6 +209,8 @@ export class GameRoom {
     this.lockSeatsForGame();
     const previousRankings = this.roundNumber > 0 ? [...this.rankings] : [];
     this.roundNumber++;
+    if (!this.matchStartedAt) this.matchStartedAt = Date.now();
+    this.reportedCounts.clear();
     const deck = shuffleDeck(createDeck());
     const dealt = dealCards(deck, MAX_PLAYERS);
     this.hands.clear();
@@ -249,7 +257,7 @@ export class GameRoom {
     if (previousRankings.length === MAX_PLAYERS) {
       this.startTributePhase(previousRankings);
     } else {
-      this.startPlayingPhase(0);
+      this.startPlayingPhase(Math.floor(Math.random() * MAX_PLAYERS));
     }
   }
 
@@ -409,7 +417,7 @@ export class GameRoom {
     const actualCard = hand.find(item => item.id === card?.id);
     if (!actualCard) return { success: false, error: '手牌中没有这张牌' };
     if (!isValidReturnTributeCard(actualCard, this.currentLevel)) {
-      return { success: false, error: '还贡只能选择牌点不超过10的牌，级牌不能还贡' };
+      return { success: false, error: '还贡只能选择牌点不超过10的牌' };
     }
 
     if (this.turnTimer) {
@@ -443,13 +451,7 @@ export class GameRoom {
     if (!this.state || this.state.phase !== GamePhase.ReturnTribute || exchange.returnCard !== null) return;
     const card = selectReturnTributeCard(this.hands.get(exchange.toPlayerId) || [], this.currentLevel);
     if (!card) {
-      // A legal deck should always provide a return card. Fall back to the lowest
-      // non-joker card so an exceptionally distributed deck cannot deadlock a room.
-      const fallback = [...(this.hands.get(exchange.toPlayerId) || [])]
-        .filter(item => !isJoker(item))
-        .sort((a, b) => effectiveRank(a.rank, this.currentLevel) - effectiveRank(b.rank, this.currentLevel))[0];
-      if (!fallback) return;
-      this.finishReturnTribute(exchange, fallback);
+      this.broadcastEvent('error', { message: '没有符合≤10条件的还贡牌，无法继续还贡；请退出并重新创建房间' });
       return;
     }
     this.finishReturnTribute(exchange, card);
@@ -505,7 +507,16 @@ export class GameRoom {
     }
   }
 
-  playCards(playerId: string, cards: Card[]): { success: boolean; error?: string } {
+  getPlayDeclarations(playerId: string, cards: Card[]): CardPattern[] {
+    if (!this.state || this.state.phase !== GamePhase.Playing || this.players[this.state.currentPlayerIndex]?.id !== playerId) return [];
+    if (!Array.isArray(cards) || new Set(cards.map(card => card.id)).size !== cards.length) return [];
+    const hand = this.hands.get(playerId) || [];
+    const actual = cards.map(card => hand.find(item => item.id === card.id));
+    if (actual.some(card => !card)) return [];
+    return declarePatterns(actual as Card[], this.currentLevel).filter(pattern => canBeat(pattern, this.state!.lastPlay, this.currentLevel));
+  }
+
+  playCards(playerId: string, cards: Card[], declaration?: { type: PatternType; rank: Rank }): { success: boolean; error?: string } {
     if (!this.state || this.state.phase !== GamePhase.Playing) {
       return { success: false, error: '游戏未在进行中' };
     }
@@ -522,6 +533,7 @@ export class GameRoom {
       return this.handlePass(playerId);
     }
 
+    if (new Set(cards.map(card => card.id)).size !== cards.length) return { success: false, error: '不能重复选择同一张牌' };
     const handCardIds = new Set(hand.map(c => c.id));
     for (const c of cards) {
       if (!handCardIds.has(c.id)) {
@@ -529,7 +541,10 @@ export class GameRoom {
       }
     }
 
-    const pattern = identifyPattern(cards, this.state.currentLevel);
+    cards = cards.map(card => hand.find(item => item.id === card.id)!);
+    const pattern = declaration
+      ? this.getPlayDeclarations(playerId, cards).find(item => item.type === declaration.type && item.rank === declaration.rank)
+      : identifyPattern(cards, this.state.currentLevel);
     if (!pattern) {
       return { success: false, error: '无效的牌型' };
     }
@@ -563,6 +578,11 @@ export class GameRoom {
       pattern,
     });
     this.emitHandToPlayer(playerId);
+
+    if (hand.length <= 10 && !this.reportedCounts.has(playerId)) {
+      this.reportedCounts.set(playerId, hand.length);
+      this.broadcastEvent('card_count_report', { playerId, count: hand.length });
+    }
 
     if (hand.length === 0) {
       const rank = this.rankings.length + 1;
@@ -717,13 +737,37 @@ export class GameRoom {
       winnerLevelDelta: delta,
     };
 
+    const passedAce = this.teamLevels[winnerTeam] === Rank.Ace
+      && this.currentLevel === Rank.Ace && this.leadingTeam === winnerTeam && partnerRank === 2;
     this.teamLevels[winnerTeam] = Math.min(Rank.Ace, this.teamLevels[winnerTeam] + delta) as Rank;
     this.leadingTeam = winnerTeam as 0 | 1;
     this.currentLevel = this.teamLevels[winnerTeam];
     this.state.currentLevel = this.currentLevel;
 
-    this.state.phase = GamePhase.RoundEnd;
+    this.state.phase = passedAce ? GamePhase.GameOver : GamePhase.RoundEnd;
+    this.consecutiveDoubles[winnerTeam] = partnerRank === 2 ? this.consecutiveDoubles[winnerTeam] + 1 : 0;
+    this.consecutiveDoubles[1 - winnerTeam] = 0;
+    if (this.competition.tripleDoublePenalty && this.consecutiveDoubles[winnerTeam] === 3 && !passedAce) {
+      this.teamLevels[winnerTeam] = Math.max(Rank.Two, this.teamLevels[winnerTeam] - 2);
+      this.currentLevel = this.teamLevels[winnerTeam];
+      this.state.currentLevel = this.currentLevel;
+      result.levelPenalty = 2;
+      this.consecutiveDoubles[winnerTeam] = 0;
+    }
+    const limitReached = (this.competition.maxRounds > 0 && this.roundNumber >= this.competition.maxRounds)
+      || (this.competition.maxMinutes > 0 && Date.now() - this.matchStartedAt >= this.competition.maxMinutes * 60000);
+    if (passedAce) {
+      result.matchWinnerTeam = winnerTeam;
+      result.endReason = 'A级双上通关';
+    } else if (limitReached && this.teamLevels[0] !== this.teamLevels[1]) {
+      result.matchWinnerTeam = this.teamLevels[0] > this.teamLevels[1] ? 0 : 1;
+      result.endReason = '达到比赛限制，按级数决胜';
+      this.state.phase = GamePhase.GameOver;
+    } else if (limitReached) {
+      result.endReason = '达到比赛限制，级数相同，下一副加赛';
+    }
     this.broadcastEvent('round_end', result);
+    this.state.roundResult = result;
     this.broadcastState();
   }
 
@@ -820,7 +864,12 @@ export class GameRoom {
     this.state.spectators = this.getSpectatorList();
     this.state.teamLevels = [...this.teamLevels];
     this.state.leadingTeam = this.leadingTeam;
-    this.emitToAll('game_state', this.state);
+    const publicState = { ...this.state, players: this.state.players.map(player => ({
+      ...player,
+      cardCount: this.rankings.some(rank => rank.playerId === player.id) ? 0 : -1,
+      reportedCardCount: this.reportedCounts.get(player.id),
+    })) };
+    this.emitToAll('game_state', publicState);
     this.emitSpectatorHands();
   }
 

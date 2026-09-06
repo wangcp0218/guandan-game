@@ -97,7 +97,7 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    socket.on('create_room', (data: { name: string; password?: string; aiProvider?: AiProvider; aiModel?: string }) => {
+    socket.on('create_room', (data: { name: string; password?: string; aiProvider?: AiProvider; aiModel?: string; maxRounds?: number; maxMinutes?: number; tripleDoublePenalty?: boolean }) => {
       if (!socket.userId) {
         socket.emit('error', { message: '请先登录' });
         return;
@@ -108,6 +108,8 @@ export function setupSocketHandlers(io: Server) {
         return;
       }
       const room = roomManager.createRoom(data.name, socket.userId, data.password || '', aiModelSelection);
+      const bounded = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10000 ? value : 0;
+      room.competition = { maxRounds: bounded(data.maxRounds), maxMinutes: bounded(data.maxMinutes), tripleDoublePenalty: data.tripleDoublePenalty === true };
       socket.emit('room_created', room.toRoomInfo());
       socket.emit('room_list', roomManager.getRoomList());
     });
@@ -251,11 +253,17 @@ export function setupSocketHandlers(io: Server) {
       socket.emit('hint_result', { cards });
     });
 
-    socket.on('play_cards', (data: { cards: any[] }) => {
+    socket.on('declare_play', (data: { cards: any[] }, reply: any) => {
+      if (typeof reply !== 'function') return;
+      const room = socket.currentRoomId && roomManager.getRoom(socket.currentRoomId);
+      reply(room && socket.userId ? room.getPlayDeclarations(socket.userId, data.cards) : []);
+    });
+
+    socket.on('play_cards', (data: { cards: any[]; declaration?: any }) => {
       if (!socket.userId || !socket.currentRoomId) return;
       const room = roomManager.getRoom(socket.currentRoomId);
       if (!room) return;
-      const result = room.playCards(socket.userId, data.cards);
+      const result = room.playCards(socket.userId, data.cards, data.declaration);
       if (!result.success) {
         socket.emit('error', { message: result.error });
       }

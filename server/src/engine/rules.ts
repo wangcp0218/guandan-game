@@ -36,7 +36,7 @@ export function selectReturnTributeCard(hand: Card[], currentLevel: number): Car
 }
 
 export function isValidReturnTributeCard(card: Card, currentLevel: number): boolean {
-  return effectiveRank(card.rank, currentLevel) <= Rank.Ten;
+  return card.rank <= Rank.Ten;
 }
 
 export function getNextLevel(currentLevel: number, partnerRank: number): number {
