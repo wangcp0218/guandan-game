@@ -1,35 +1,60 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
+# Production deployment helper. Authentication is provided by ssh-agent or
+# SSH_KEY_PATH; this file intentionally contains no password or API key.
 SERVER="${SERVER:-fes@192.168.150.34}"
 REMOTE_DIR="${REMOTE_DIR:-/home/fes/oowsp}"
-SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/oowsp_deploy_ed25519}"
-SSH_OPTS="-i $SSH_KEY_PATH -o BatchMode=yes"
+REMOTE_ARCHIVE="${REMOTE_ARCHIVE:-/home/fes/oowsp-src.tar.gz}"
+SERVICE_NAME="${SERVICE_NAME:-oowsp}"
+SSH_KEY_PATH="${SSH_KEY_PATH:-}"
 
-if [ ! -f "$SSH_KEY_PATH" ]; then
-  echo "SSH key not found: $SSH_KEY_PATH"
-  echo "Set SSH_KEY_PATH to your private key path and try again."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+LOCAL_ARCHIVE="$(mktemp -t oowsp-src.XXXXXX.tar.gz)"
+trap 'rm -f "$LOCAL_ARCHIVE"' EXIT
+
+SSH_OPTIONS=(-o BatchMode=yes)
+if [[ -n "$SSH_KEY_PATH" ]]; then
+  if [[ ! -f "$SSH_KEY_PATH" ]]; then
+    echo "SSH key not found: $SSH_KEY_PATH" >&2
+    exit 1
+  fi
+  SSH_OPTIONS+=(-i "$SSH_KEY_PATH" -o IdentitiesOnly=yes)
+fi
+
+echo "=== Preflight ==="
+git -C "$PROJECT_DIR" diff --check
+if [[ -n "$(git -C "$PROJECT_DIR" status --porcelain)" ]]; then
+  echo "Working tree is not clean. Commit or stash changes before deployment." >&2
   exit 1
 fi
 
-echo "=== Building project ==="
-cd "$(dirname "$0")/.."
-npm run build -w server
-npm run build -w client
+echo "=== Building server ==="
+npm --prefix "$PROJECT_DIR" run build -w server
 
-echo "=== Preparing remote directories ==="
-ssh $SSH_OPTS "$SERVER" "mkdir -p $REMOTE_DIR/server $REMOTE_DIR/client"
+echo "=== Building client ==="
+npm --prefix "$PROJECT_DIR" run build -w client
 
-echo "=== Syncing files to server ==="
-ssh $SSH_OPTS "$SERVER" "rm -rf $REMOTE_DIR/server/dist $REMOTE_DIR/client/dist"
-tar -C server -cf - dist | ssh $SSH_OPTS "$SERVER" "mkdir -p $REMOTE_DIR/server && tar -xf - -C $REMOTE_DIR/server"
-tar -C client -cf - dist | ssh $SSH_OPTS "$SERVER" "mkdir -p $REMOTE_DIR/client && tar -xf - -C $REMOTE_DIR/client"
-cat server/package.json | ssh $SSH_OPTS "$SERVER" "cat > $REMOTE_DIR/server/package.json"
+echo "=== Packaging source ==="
+COPYFILE_DISABLE=1 tar czf "$LOCAL_ARCHIVE" \
+  --exclude='node_modules' \
+  --exclude='dist' \
+  --exclude='.git' \
+  --exclude='.env' \
+  --exclude='.env.*' \
+  --exclude='data' \
+  -C "$PROJECT_DIR" .
 
-echo "=== Installing server deps ==="
-ssh $SSH_OPTS "$SERVER" "cd $REMOTE_DIR/server && npm install --omit=dev"
+echo "=== Uploading source ==="
+scp "${SSH_OPTIONS[@]}" "$LOCAL_ARCHIVE" "$SERVER:$REMOTE_ARCHIVE"
 
-echo "=== Restarting server ==="
-ssh $SSH_OPTS "$SERVER" "cd $REMOTE_DIR/server && mkdir -p ~/.local/bin ~/.local/lib && PATH=\$HOME/.local/bin:\$PATH && if ! command -v pm2 >/dev/null 2>&1; then npm install -g --prefix ~/.local pm2; fi && (pm2 restart oowsp || pm2 start dist/server/src/index.js --name oowsp) && pm2 save"
+echo "=== Building and restarting on server ==="
+ssh "${SSH_OPTIONS[@]}" "$SERVER" \
+  "set -e; mkdir -p '$REMOTE_DIR'; cd '$REMOTE_DIR'; tar xzf '$REMOTE_ARCHIVE'; rm -f '$REMOTE_ARCHIVE'; npm install; npm run build -w server; npm run build -w client; sudo systemctl restart '$SERVICE_NAME'"
 
-echo "=== Deploy complete ==="
+echo "=== Verifying deployment ==="
+ssh "${SSH_OPTIONS[@]}" "$SERVER" \
+  "systemctl is-active '$SERVICE_NAME'; curl -fsS -o /dev/null -w 'HTTP %{http_code}\\n' http://127.0.0.1/"
+
+echo "=== Deployment complete ==="
