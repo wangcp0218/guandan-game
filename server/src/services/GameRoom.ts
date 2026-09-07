@@ -866,7 +866,8 @@ export class GameRoom {
     this.state.leadingTeam = this.leadingTeam;
     const publicState = { ...this.state, players: this.state.players.map(player => ({
       ...player,
-      cardCount: this.rankings.some(rank => rank.playerId === player.id) ? 0 : -1,
+      cardCount: this.reportedCounts.has(player.id) || this.rankings.some(rank => rank.playerId === player.id)
+        ? (this.hands.get(player.id)?.length || 0) : -1,
       reportedCardCount: this.reportedCounts.get(player.id),
     })) };
     this.emitToAll('game_state', publicState);
