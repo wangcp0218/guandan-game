@@ -162,7 +162,7 @@ export default function Lobby() {
   };
 
   return (
-    <div style={styles.container}>
+    <div className="lobby-page" style={styles.container}>
       <header style={styles.header}>
         <div>
           <h2 style={styles.logo}>🃏 掼蛋大厅</h2>

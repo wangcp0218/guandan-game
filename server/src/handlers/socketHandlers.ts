@@ -302,21 +302,6 @@ export function setupSocketHandlers(io: Server) {
       if (!result.success) socket.emit('error', { message: result.error });
     });
 
-    socket.on('chat', (data: { content: string }) => {
-      if (!socket.userId || !socket.currentRoomId) return;
-      const content = typeof data.content === 'string' ? data.content.trim().slice(0, 200) : '';
-      if (!content) return;
-      const message = {
-        playerId: socket.userId,
-        playerName: socket.username,
-        content,
-        timestamp: Date.now(),
-      };
-      // Echo explicitly to the sender, then broadcast to the remaining room members.
-      // This avoids relying on adapter membership for the sender's own chat display.
-      socket.emit('chat', message);
-      socket.to(socket.currentRoomId).emit('chat', message);
-    });
 
     socket.on('disconnect', () => {
       handleLeaveRoom(socket, io);

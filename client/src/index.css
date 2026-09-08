@@ -1,5 +1,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* Responsive table: independent zones keep controls clear of cards. */
+
 :root {
   --bg-dark: #0a4a2e;
   --bg-table: #1a6b42;
@@ -842,9 +844,129 @@ input::placeholder { color: rgba(255,255,255,0.5); }
     --hand-stack-rise: 25px;
     --hand-column-step: 48px;
     --hand-column-min: 30px;
-    padding-left: 120px;
+    padding-left: 8px;
     justify-content: flex-start;
-    overflow-x: auto;
+    overflow-x: visible;
     overflow-y: visible;
   }
+}
+
+body, #root { min-height: 100dvh; height: 100dvh; }
+body { overflow: auto; }
+button, summary, [role="button"] { touch-action: manipulation; }
+button:disabled { cursor: default; }
+.game-room { height: 100dvh !important; padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+.player-seat { position: absolute; z-index: 12; }
+.player-seat--top { top: 8%; left: 50%; transform: translateX(-50%); }
+.player-seat--left { top: 40%; left: 2%; }
+.player-seat--right { top: 40%; right: 2%; }
+.played-zone { position: absolute; z-index: 10; max-width: 30%; overflow: auto; padding-top: 22px; }
+.played-zone--top { top: 21%; left: 50%; transform: translateX(-50%); }
+.played-zone--left { top: 37%; left: 15%; }
+.played-zone--right { top: 37%; right: 15%; }
+.played-zone .seat-action-cards { width: max-content; min-width: 100%; }
+.game-bottom-area { position: absolute; bottom: 0; left: 0; right: 0; padding: 0 12px 8px; }
+.hand-scroll { overflow: auto; max-height: 38dvh; padding-top: 16px; overscroll-behavior: contain; }
+.hand-cards { overflow: visible; }
+.game-action-bar { margin-bottom: 0; }
+.game-play-actions button { min-height: 44px; }
+.self-player-seat { bottom: 43%; }
+.spectator-menu { position: absolute; top: 64px; right: 16px; z-index: 50; font-size: 13px; }
+.spectator-menu summary { cursor: pointer; padding: 10px 14px; border: 1px solid #ffffff40; border-radius: 8px; background: #073921; }
+.spectator-menu-list { position: absolute; right: 0; width: 220px; max-height: 40dvh; overflow: auto; padding: 12px; background: #123d2b; border: 1px solid #ffffff40; border-radius: 8px; box-shadow: 0 8px 24px #0006; }
+.spectator-menu-list > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.spectator-menu-list span { overflow-wrap: anywhere; }
+.spectator-menu-list button { min-height: 44px; padding: 8px; }
+.game-room.is-waiting .game-center-play-area { top: 55%; z-index: 40; }
+.game-room.is-waiting .game-bottom-area { display: none; }
+.game-room [style*="position: fixed"] > div { max-width: calc(100vw - 24px); max-height: 90dvh; overflow: auto; }
+
+@media (max-width: 900px) {
+  input, select { font-size: 16px !important; }
+  .game-room > div { border-width: 4px; border-radius: 14px; }
+  .duel-scoreboard { top: 8px; left: 8px; min-width: 148px; padding: 5px; }
+  .duel-score-team strong { font-size: 22px; }
+  .room-exit-actions { top: 8px; right: 6px; gap: 4px; }
+  .room-exit-actions button { min-height: 40px; padding: 6px 8px; font-size: 11px; }
+  .game-turn-status { top: 77px; left: 8px; max-width: 60%; font-size: 12px; }
+  .game-turn-error { white-space: normal; }
+  .spectator-menu { top: 54px; right: 6px; }
+  .player-info { min-width: 0 !important; padding: 5px 7px !important; max-width: 112px; gap: 2px !important; }
+  .player-info > span { max-width: 100%; overflow-wrap: anywhere; }
+  .player-info > div > div { width: 24px !important; height: 24px !important; }
+  .hand-cards { width: max-content; min-width: 100%; justify-content: flex-start; --hand-column-step: 44px; --hand-column-min: 44px; --hand-stack-rise: 28px; }
+  .hand-card-group { flex-shrink: 0; }
+  .hand-scroll { padding-bottom: 5px; }
+  .self-player-seat { transform: none; left: 8px; bottom: 44%; }
+  .tribute-panel { width: min(620px, 88vw); max-height: 30dvh; overflow: auto; padding: 8px; }
+  .tribute-exchange { flex-wrap: wrap; }
+  .waiting-seat-setup { max-height: 65dvh; overflow: auto; }
+  .is-waiting .player-seat, .is-waiting .self-player-seat { display: none; }
+}
+
+@media (max-width: 600px) and (orientation: portrait) {
+  :root { --game-card-width: 48px; --game-card-height: 70px; --game-card-rank-size: 23px; --game-card-suit-size: 17px; --game-card-center-size: 31px; }
+  .player-seat { top: 120px; width: 30%; }
+  .player-seat--left { left: 2%; }
+  .player-seat--right { right: 2%; }
+  .player-seat--top { left: 50%; }
+  .player-info { margin: auto; }
+  .played-zone { top: 210px; width: 30%; max-width: 30%; }
+  .played-zone--left { left: 1%; }
+  .played-zone--right { right: 1%; }
+  .played-zone--top { left: 50%; }
+  .seat-action-pass { min-width: 0; font-size: 22px; }
+  .game-center-play-area { top: 46%; max-width: 90%; overflow: auto; padding-top: 20px; }
+  .game-bottom-area { padding: 0 4px 4px; }
+  .hand-scroll { max-height: 34dvh; }
+  .hand-cards { --hand-card-width: 60px; --hand-card-height: 88px; --hand-card-rank-size: 26px; --hand-card-suit-size: 19px; --hand-card-center-size: 38px; }
+  .self-player-seat { bottom: 41%; }
+  .game-play-actions { gap: 6px; }
+  .game-play-actions button { min-width: 80px; }
+  .is-spectator .spectator-hand { width: 44%; }
+  .is-spectator .spectator-hand--top { top: 42%; left: 25%; }
+  .is-spectator .spectator-hand--bottom { bottom: 8%; left: 25%; }
+  .is-spectator .spectator-hand--left { top: 42%; left: 52%; }
+  .is-spectator .spectator-hand--right { top: auto; bottom: 8%; right: 2%; }
+  .spectator-hand-cards { overflow-x: auto; justify-content: flex-start; pointer-events: auto; }
+  .spectator-hand-card { flex-shrink: 0; }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  :root { --game-card-width: 42px; --game-card-height: 60px; --game-card-rank-size: 22px; --game-card-suit-size: 16px; --game-card-center-size: 29px; }
+  .player-seat--top { top: 6px; }
+  .player-seat--left, .player-seat--right { top: 100px; }
+  .player-info { padding: 3px 6px !important; min-width: 0 !important; }
+  .played-zone--top { top: 68px; }
+  .played-zone--left { top: 96px; left: 17%; }
+  .played-zone--right { top: 96px; right: 17%; }
+  .game-center-play-area { top: 44%; }
+  .hand-scroll { max-height: 30dvh; }
+  .hand-cards { --hand-stack-rise: 26px; }
+  .self-player-seat { left: 6px; bottom: 5px; z-index: 8; }
+  .game-bottom-area { left: 115px; right: 8px; }
+  .game-room.is-waiting .game-center-play-area { top: 52%; }
+  .waiting-seat-setup { max-height: 75dvh; padding: 10px; }
+}
+
+@media (hover: none) {
+  button:hover, .playing-card[role="button"]:hover { transform: none; }
+  .playing-card.is-selected, .playing-card.is-selected:hover { transform: translateY(-6px); }
+}
+
+.login-page { min-height: 100dvh; height: auto !important; padding: 16px; }
+.login-card { max-width: 100%; }
+.lobby-page { height: 100dvh !important; overflow: auto; }
+.lobby-page [style*="position: fixed"] { padding: 12px; }
+.lobby-page [style*="position: fixed"] > div { max-width: 100%; }
+@media (max-width: 600px) {
+  .login-card { padding: 24px !important; }
+  .lobby-page > header { padding: 14px !important; gap: 8px; flex-wrap: wrap; }
+  .lobby-page > div { padding: 12px !important; flex-wrap: wrap; }
+  .lobby-page button { min-height: 44px; }
+}
+@media (max-width: 600px) and (max-height: 650px) and (orientation: portrait) {
+  .self-player-seat { top: 55%; bottom: auto; }
+  .self-player-seat .player-info > div, .self-player-seat .player-info > span:last-child { display: none; }
+  .game-center-play-area { top: 55%; max-width: 55%; }
 }

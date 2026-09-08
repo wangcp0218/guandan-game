@@ -44,8 +44,8 @@ export default function Login() {
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <div className="login-page" style={styles.container}>
+      <div className="login-card" style={styles.card}>
         <h1 style={styles.title}>掼 蛋</h1>
         <p style={styles.subtitle}>在线对战</p>
 

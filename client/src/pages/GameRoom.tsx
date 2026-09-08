@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
-import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, ChatMessage, RoundResult, SpectatorHands } from '../sharedTypes';
+import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, RoundResult, SpectatorHands } from '../sharedTypes';
 import HandCards from '../components/HandCards';
 import PlayerInfoComponent from '../components/PlayerInfo';
 import PlayArea, { PlayerAction } from '../components/PlayArea';
-import Chat from '../components/Chat';
+
 import SpectatorHand from '../components/SpectatorHand';
 import CardComponent from '../components/CardComponent';
 
@@ -20,12 +20,12 @@ export default function GameRoom() {
   const {
     gameState, setGameState, mySeatIndex, setMySeatIndex,
     myCards, setMyCards, selectedCardIds, toggleCardSelection, toggleCardStackSelection, clearSelection,
-    messages, addMessage, roundResult, setRoundResult, reset,
+    roundResult, setRoundResult, reset,
   } = useGameStore();
 
   const [playerActions, setPlayerActions] = useState<Record<string, PlayerAction>>({});
   const [errorMsg, setErrorMsg] = useState('');
-  const [waiting, setWaiting] = useState(true);
+  const [waiting, setWaiting] = useState(!gameState || gameState.phase === 'waiting');
   const [selectedSeatPlayerId, setSelectedSeatPlayerId] = useState<string | null>(null);
   const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
   const [tributeNotice, setTributeNotice] = useState('');
@@ -118,10 +118,7 @@ export default function GameRoom() {
     };
     socket.on('round_end', onRoundEnd);
 
-    const onChat = (msg: ChatMessage) => {
-      addMessage(msg);
-    };
-    socket.on('chat', onChat);
+
 
     const onError = (data: { message: string }) => {
       setErrorMsg(data.message);
@@ -158,7 +155,7 @@ export default function GameRoom() {
       socket.off('player_pass', onPlayerPass);
       socket.off('player_finish', onPlayerFinish);
       socket.off('round_end', onRoundEnd);
-      socket.off('chat', onChat);
+
       socket.off('error', onError);
       socket.off('player_joined', onPlayerJoined);
       socket.off('hint_result', onHintResult);
@@ -215,10 +212,7 @@ export default function GameRoom() {
     clearSelection();
   };
 
-  const handleChat = (content: string) => {
-    const socket = getSocket();
-    socket?.emit('chat', { content });
-  };
+
 
   const handleLeaveRoom = () => {
     getSocket()?.emit('leave_room');
@@ -291,7 +285,7 @@ export default function GameRoom() {
   };
 
   return (
-    <div className="game-room" style={styles.container}>
+    <div className={`game-room${waiting ? ' is-waiting' : ''}${isSpectator ? ' is-spectator' : ''}`} style={styles.container}>
       <div style={styles.table}>
         <div className="duel-scoreboard" aria-label="双方当前级牌">
           <div className={`duel-score-team ${isSpectator ? (leadingTeam === 0 ? 'is-leading' : 'is-trailing') : (ownIsLeading ? 'is-leading' : 'is-trailing')}`}>
@@ -328,7 +322,7 @@ export default function GameRoom() {
         </div>
 
         {/* Top — 对家 (partner) */}
-        <div style={{ position: 'absolute', top: '8%', left: '50%', transform: 'translateX(-50%)' }}>
+        <div className="player-seat player-seat--top">
           {getPlayerForPosition(2) && (
             <PlayerInfoComponent
               player={getPlayerForPosition(2)!}
@@ -341,7 +335,7 @@ export default function GameRoom() {
         </div>
 
         {/* Left — 对手 */}
-        <div style={{ position: 'absolute', top: '45%', left: '3%', transform: 'translateY(-50%)' }}>
+        <div className="player-seat player-seat--left">
           {getPlayerForPosition(3) && (
             <PlayerInfoComponent
               player={getPlayerForPosition(3)!}
@@ -354,7 +348,7 @@ export default function GameRoom() {
         </div>
 
         {/* Right — 对手 */}
-        <div style={{ position: 'absolute', top: '45%', right: '3%', transform: 'translateY(-50%)' }}>
+        <div className="player-seat player-seat--right">
           {getPlayerForPosition(1) && (
             <PlayerInfoComponent
               player={getPlayerForPosition(1)!}
@@ -371,7 +365,7 @@ export default function GameRoom() {
           const player = getPlayerForPosition(positionIndex);
           const position = positionIndex === 1 ? 'right' : positionIndex === 2 ? 'top' : 'left';
           return player ? (
-            <div key={position} style={styles[`${position}Action`]}>
+            <div key={position} className={`played-zone played-zone--${position}`}>
               <PlayArea action={playerActions[player.id]} position={position} />
             </div>
           ) : null;
@@ -470,7 +464,7 @@ export default function GameRoom() {
         </div>
 
         {/* Bottom - my hand cards */}
-        {!isSpectator && <div style={styles.bottomArea}>
+        {!isSpectator && <div className="game-bottom-area">
           <div className="game-action-bar">
             <div className="game-play-actions">
               {gameState?.phase === 'return_tribute' ? (
@@ -528,25 +522,24 @@ export default function GameRoom() {
               )}
             </div>
           </div>
-          <HandCards
+          <div className="hand-scroll"><HandCards
             cards={myCards}
             selectedIds={selectedCardIds}
             onToggle={toggleCardSelection}
             onToggleStack={toggleCardStackSelection}
             currentLevel={currentLevel}
-          />
+          /></div>
         </div>}
 
-        {/* Chat panel */}
-        <div className="game-chat-panel">
-          <Chat
-            messages={messages}
-            onSend={handleChat}
-            spectators={gameState?.spectators || []}
-            canManageSpectators={isRoomOwner && !isSpectator}
-            onKickSpectator={(spectatorId) => getSocket()?.emit('kick_spectator', { spectatorId })}
-          />
-        </div>
+        <details className="spectator-menu">
+          <summary>观战 {gameState?.spectators.length || 0}</summary>
+          <div className="spectator-menu-list">
+            {!gameState?.spectators.length && <p>暂无观察者</p>}
+            {gameState?.spectators.map(person => <div key={person.id}><span>{person.name}</span>
+              {isRoomOwner && !isSpectator && <button className="btn-danger" onClick={() => getSocket()?.emit('kick_spectator', { spectatorId: person.id })}>移除</button>}
+            </div>)}
+          </div>
+        </details>
 
         {/* Round result modal */}
         {declarations.length > 0 && <div style={styles.modal}><div style={{ ...styles.modalContent, maxHeight: '80vh', overflowY: 'auto' }}>
