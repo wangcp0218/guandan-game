@@ -977,7 +977,11 @@ button:disabled { cursor: default; }
 
 /* Phone landscape deliberately uses a separate grid table, rather than the
    desktop's four absolute-positioned seat zones. */
-@media (max-width: 1000px) and (max-height: 600px) and (orientation: landscape) {
+/* Safari can expose a landscape phone as a wide CSS viewport, so screen width
+   alone is not a reliable mobile detector. Coarse-pointer devices use this
+   layout too, even when their reported width exceeds 1000px. */
+@media (max-width: 1000px) and (max-height: 600px) and (orientation: landscape),
+       (hover: none) and (pointer: coarse) and (orientation: landscape) {
   .game-room { padding: 4px; }
   .game-table {
     display: grid !important;
