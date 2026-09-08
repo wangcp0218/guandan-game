@@ -251,6 +251,9 @@ export default function GameRoom() {
   const turnMessage = gameState?.phase === 'return_tribute'
     ? (isMyReturnTribute ? '请选择一张10及以下的牌还贡' : '等待对方还贡...')
     : (isMyTurn ? '轮到你了!' : '等待中...');
+  const latestTableAction: PlayerAction | undefined = gameState?.lastPlay
+    ? { type: 'play', pattern: gameState.lastPlay }
+    : undefined;
 
   const playerName = (playerId: string) =>
     gameState?.players.find(player => player.id === playerId)?.name || '未知玩家';
@@ -286,7 +289,7 @@ export default function GameRoom() {
 
   return (
     <div className={`game-room${waiting ? ' is-waiting' : ''}${isSpectator ? ' is-spectator' : ''}`} style={styles.container}>
-      <div style={styles.table}>
+      <div className="game-table" style={styles.table}>
         <div className="duel-scoreboard" aria-label="双方当前级牌">
           <div className={`duel-score-team ${isSpectator ? (leadingTeam === 0 ? 'is-leading' : 'is-trailing') : (ownIsLeading ? 'is-leading' : 'is-trailing')}`}>
             <span>{isSpectator ? '队伍 A' : '我方'}</span>
@@ -453,12 +456,15 @@ export default function GameRoom() {
             </div>
           ) : (
             <div style={{ textAlign: 'center' }}>
-              {getPlayerForPosition(0) && (
-                <PlayArea
-                  action={playerActions[getPlayerForPosition(0)!.id]}
-                  position="bottom"
-                />
-              )}
+              {/* Desktop keeps the original personal play area.  The phone
+                  layout below instead presents the current table play once,
+                  in the centre of its dedicated grid cell. */}
+              <div className="desktop-current-play">
+                <PlayArea action={getPlayerForPosition(0) ? playerActions[getPlayerForPosition(0)!.id] : undefined} position="bottom" />
+              </div>
+              <div className="mobile-current-play">
+                <PlayArea action={latestTableAction} position="bottom" />
+              </div>
             </div>
           )}
         </div>
