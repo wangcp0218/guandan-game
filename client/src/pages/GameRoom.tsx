@@ -30,6 +30,17 @@ export default function GameRoom() {
   const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
   const [tributeNotice, setTributeNotice] = useState('');
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
+  const [compactLandscape, setCompactLandscape] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia(
+      '(orientation: landscape) and (max-width: 1450px) and (max-height: 700px), (hover: none) and (pointer: coarse) and (orientation: landscape)',
+    );
+    const sync = () => setCompactLandscape(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -534,6 +545,7 @@ export default function GameRoom() {
             onToggle={toggleCardSelection}
             onToggleStack={toggleCardStackSelection}
             currentLevel={currentLevel}
+            groupBySuit={compactLandscape}
           /></div>
         </div>}
 
