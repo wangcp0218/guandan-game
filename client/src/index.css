@@ -986,7 +986,7 @@ button:disabled { cursor: default; }
   }
   .played-zone--top { top: clamp(175px, 23%, 195px); }
   .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 38px); }
-  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 114px); }
+  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 76px); }
   .seat-action-pass { min-width: 0; font-size: 16px; }
   .seat-action-pass,
   .seat-action-cards {
@@ -1011,7 +1011,7 @@ button:disabled { cursor: default; }
   }
   .seat-action-card { flex-basis: var(--game-card-width); }
   .game-center-play-area {
-    top: calc(clamp(175px, 23%, 195px) + 76px);
+    top: calc(clamp(175px, 23%, 195px) + 114px);
     left: 0;
     width: 100%;
     max-width: 100%;
@@ -1320,8 +1320,8 @@ button:disabled { cursor: default; }
   }
   .played-zone--top { top: clamp(175px, 23%, 195px); }
   .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 74px); }
-  .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 148px); }
-  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 222px); }
+  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 148px); }
+  .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 222px); }
   .seat-action-cards { min-height: 67px; }
   .seat-action-card + .seat-action-card {
     margin-left: calc(var(--game-card-width) * -0.48) !important;
@@ -1344,8 +1344,15 @@ button:disabled { cursor: default; }
 @media (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
   .played-zone--top { top: clamp(175px, 23%, 195px); }
   .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 38px); }
-  .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 76px); left: 0; max-width: 100%; transform: none; }
-  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 114px); }
+  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 76px); }
+  .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 114px); left: 0; max-width: 100%; transform: none; }
+}
+
+/* Keep the interactive hand above the four table-action rows.  A short hand
+   stays centred, while a long hand remains reachable through horizontal scroll. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .game-bottom-area { z-index: 30; }
+  .hand-cards { justify-content: center; }
 }
 
 /* The waiting-seat panel is a dialog-like surface, not a play row. Keep it

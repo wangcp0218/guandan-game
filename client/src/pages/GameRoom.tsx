@@ -252,10 +252,6 @@ export default function GameRoom() {
   const turnMessage = gameState?.phase === 'return_tribute'
     ? (isMyReturnTribute ? '请选择一张10及以下的牌还贡' : '等待对方还贡...')
     : (isMyTurn ? '轮到你了!' : '等待中...');
-  const latestTableAction: PlayerAction | undefined = gameState?.lastPlay
-    ? { type: 'play', pattern: gameState.lastPlay }
-    : undefined;
-
   const playerName = (playerId: string) =>
     gameState?.players.find(player => player.id === playerId)?.name || '未知玩家';
 
@@ -369,7 +365,7 @@ export default function GameRoom() {
           )}
         </div>
 
-        {/* Portrait rows follow: partner, left opponent, self, right opponent. */}
+        {/* Portrait rows follow: partner, left opponent, right opponent, self. */}
         {([2, 3, 1] as const).map(positionIndex => {
           const player = getPlayerForPosition(positionIndex);
           const position = positionIndex === 1 ? 'right' : positionIndex === 2 ? 'top' : 'left';
@@ -473,7 +469,11 @@ export default function GameRoom() {
                 />
               </div>
               <div className="mobile-current-play">
-                <PlayArea action={latestTableAction} position="bottom" playerName="当前出牌" />
+                <PlayArea
+                  action={getPlayerForPosition(0) ? playerActions[getPlayerForPosition(0)!.id] : undefined}
+                  position="bottom"
+                  playerName={getPlayerForPosition(0)?.name}
+                />
               </div>
             </div>
           )}
