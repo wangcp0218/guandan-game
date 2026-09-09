@@ -1347,3 +1347,20 @@ button:disabled { cursor: default; }
   .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 76px); left: 0; max-width: 100%; transform: none; }
   .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 114px); }
 }
+
+/* The waiting-seat panel is a dialog-like surface, not a play row. Keep it
+   centred even though the active-game portrait layout removes translation. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .game-room.is-waiting .game-center-play-area {
+    top: 50%;
+    left: 50%;
+    width: min(92%, 620px);
+    max-width: 92%;
+    transform: translate(-50%, -50%);
+  }
+  .game-room.is-waiting .waiting-seat-setup {
+    box-sizing: border-box;
+    max-height: calc(100dvh - 110px);
+    overflow-y: auto;
+  }
+}
