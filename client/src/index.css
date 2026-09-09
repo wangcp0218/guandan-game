@@ -943,13 +943,26 @@ button:disabled { cursor: default; }
   .played-zone--left { top: calc(clamp(205px, 28%, 235px) + 35px); }
   .played-zone--right { top: calc(clamp(205px, 28%, 235px) + 70px); }
   .seat-action-pass { min-width: 0; font-size: 16px; }
-  .seat-action-cards { width: 100%; min-height: 34px; padding: 0 3px; }
+  .seat-action-pass,
+  .seat-action-cards {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 34px;
+    padding-right: 3px;
+    padding-left: 48px;
+  }
   .seat-action-player {
-    flex-basis: 42px;
-    max-width: 42px;
-    margin-right: 2px;
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    z-index: 20;
+    width: 38px;
+    max-width: 38px;
+    margin: 0;
+    transform: translateY(-50%);
     font-size: 9px;
-    text-align: right;
+    text-align: left;
   }
   .seat-action-card { flex-basis: var(--game-card-width); }
   .game-center-play-area {
