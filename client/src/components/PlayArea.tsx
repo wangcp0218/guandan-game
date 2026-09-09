@@ -8,21 +8,24 @@ export type PlayerAction =
 interface Props {
   action?: PlayerAction;
   position: 'top' | 'left' | 'right' | 'bottom';
+  playerName?: string;
 }
 
-export default function PlayArea({ action, position }: Props) {
+export default function PlayArea({ action, position, playerName }: Props) {
   if (!action) return null;
 
   if (action.type === 'pass') {
     return (
       <div className={`seat-action-pass seat-action-pass--${position}`}>
-        不出
+        {playerName && <span className="seat-action-player">{playerName}</span>}
+        <span>不出</span>
       </div>
     );
   }
 
   return (
     <div className={`seat-action-cards seat-action-cards--${position}`}>
+      {playerName && <span className="seat-action-player">{playerName}</span>}
       {action.pattern.substitutions?.length ? <span style={{ position: 'absolute', bottom: '100%', color: '#ffe487', whiteSpace: 'nowrap', fontSize: 13 }}>逢人配→{action.pattern.substitutions.map(card => `${({ S: '♠', H: '♥', C: '♣', D: '♦' })[card.suit]}${card.rank}`).join('、')}</span> : null}
       {action.pattern.cards.map((card, index) => (
         <div

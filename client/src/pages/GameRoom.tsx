@@ -369,7 +369,7 @@ export default function GameRoom() {
           const position = positionIndex === 1 ? 'right' : positionIndex === 2 ? 'top' : 'left';
           return player ? (
             <div key={position} className={`played-zone played-zone--${position}`}>
-              <PlayArea action={playerActions[player.id]} position={position} />
+              <PlayArea action={playerActions[player.id]} position={position} playerName={player.name} />
             </div>
           ) : null;
         })}
@@ -460,10 +460,14 @@ export default function GameRoom() {
                   layout below instead presents the current table play once,
                   in the centre of its dedicated grid cell. */}
               <div className="desktop-current-play">
-                <PlayArea action={getPlayerForPosition(0) ? playerActions[getPlayerForPosition(0)!.id] : undefined} position="bottom" />
+                <PlayArea
+                  action={getPlayerForPosition(0) ? playerActions[getPlayerForPosition(0)!.id] : undefined}
+                  position="bottom"
+                  playerName={getPlayerForPosition(0)?.name}
+                />
               </div>
               <div className="mobile-current-play">
-                <PlayArea action={latestTableAction} position="bottom" />
+                <PlayArea action={latestTableAction} position="bottom" playerName="当前出牌" />
               </div>
             </div>
           )}

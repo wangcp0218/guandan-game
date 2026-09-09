@@ -28,7 +28,7 @@ export default function PlayerInfoComponent({ player, position, isCurrent, isMe,
       padding: '8px 16px',
       borderRadius: 12,
       background: isCurrent ? 'rgba(230,180,34,0.25)' : 'rgba(255,255,255,0.05)',
-      border: isCurrent ? '2px solid #e6b422' : isPartner ? '2px solid #4a90d9' : '1px solid rgba(255,255,255,0.1)',
+      border: isCurrent ? '2px solid #e6b422' : '1px solid rgba(255,255,255,0.1)',
       minWidth: 110,
       transition: 'all 0.3s',
     }}>

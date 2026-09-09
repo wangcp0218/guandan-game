@@ -414,6 +414,20 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   pointer-events: none;
 }
 
+.seat-action-player {
+  flex: 0 0 auto;
+  max-width: 72px;
+  margin-right: 5px;
+  overflow: hidden;
+  color: rgba(255,255,255,.78);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
 .seat-action-card {
   position: relative;
   flex: 0 0 var(--game-card-width);
@@ -658,6 +672,9 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .seat-action-pass {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 84px;
   color: #ffe0a3;
   font-size: clamp(24px, 2.4vw, 40px);
@@ -927,6 +944,13 @@ button:disabled { cursor: default; }
   .played-zone--right { top: calc(clamp(205px, 28%, 235px) + 70px); }
   .seat-action-pass { min-width: 0; font-size: 16px; }
   .seat-action-cards { width: 100%; min-height: 34px; padding: 0 3px; }
+  .seat-action-player {
+    flex-basis: 42px;
+    max-width: 42px;
+    margin-right: 2px;
+    font-size: 9px;
+    text-align: right;
+  }
   .seat-action-card { flex-basis: var(--game-card-width); }
   .game-center-play-area {
     top: calc(clamp(205px, 28%, 235px) + 105px);
@@ -1147,7 +1171,9 @@ button:disabled { cursor: default; }
     grid-column: 1;
     grid-row: 2;
     align-self: end;
+    box-sizing: border-box;
     margin: 0;
+    padding-left: 84px;
   }
   .game-play-actions { width: 100%; }
   .game-play-actions button {
@@ -1186,6 +1212,40 @@ button:disabled { cursor: default; }
   .hand-card-group { flex-shrink: 0; }
   .hand-card-slot { width: var(--hand-card-width); height: var(--hand-card-height); }
   .playing-card.is-selected, .playing-card.is-selected:hover { transform: translateY(-5px); }
+  .self-player-seat {
+    top: auto;
+    right: auto;
+    bottom: max(4px, env(safe-area-inset-bottom));
+    left: 4px;
+    z-index: 35;
+    width: 80px;
+    height: 48px;
+  }
+  .self-player-seat .player-info {
+    box-sizing: border-box;
+    flex-direction: row !important;
+    width: 80px;
+    height: 48px;
+    min-width: 0 !important;
+    padding: 3px 4px !important;
+    border-radius: 8px !important;
+    gap: 3px !important;
+  }
+  .self-player-seat .player-info > div > div {
+    width: 20px !important;
+    height: 20px !important;
+    font-size: 10px !important;
+  }
+  .self-player-seat .player-info > div > span,
+  .self-player-seat .player-info > span:last-child { display: none; }
+  .self-player-seat .player-info > span:nth-child(2) {
+    max-width: 48px;
+    overflow: hidden;
+    font-size: 10px !important;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 /* Full-height portrait phones can afford larger cards while preserving four
@@ -1205,9 +1265,6 @@ button:disabled { cursor: default; }
   .seat-action-cards { min-height: 67px; }
   .seat-action-card + .seat-action-card {
     margin-left: calc(var(--game-card-width) * -0.48) !important;
-  }
-  .self-player-seat {
-    top: calc(clamp(205px, 28%, 235px) + 272px);
   }
   .game-bottom-area { height: 30dvh; }
   .hand-cards {
