@@ -52,7 +52,7 @@ tar czf "$local_archive" \
   --exclude='./.env' \
   --exclude='./data' \
   .
-scp "$local_archive" "${deploy_host}:\$HOME/${deploy_archive}"
+scp "$local_archive" "${deploy_host}:/home/fes/${deploy_archive}"
 
 echo "完成：代码已提交并同步，部署包已上传。"
 echo "下一步请登录服务器并执行: ~/deploy-oowsp.sh"
