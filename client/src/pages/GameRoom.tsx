@@ -30,6 +30,7 @@ export default function GameRoom() {
   const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
   const [tributeNotice, setTributeNotice] = useState('');
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
+  const [spectatorDialogOpen, setSpectatorDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -363,8 +364,8 @@ export default function GameRoom() {
           )}
         </div>
 
-        {/* Each player's latest action stays near their seat for clear ownership. */}
-        {([1, 2, 3] as const).map(positionIndex => {
+        {/* Portrait rows follow: partner, left opponent, self, right opponent. */}
+        {([2, 3, 1] as const).map(positionIndex => {
           const player = getPlayerForPosition(positionIndex);
           const position = positionIndex === 1 ? 'right' : positionIndex === 2 ? 'top' : 'left';
           return player ? (
@@ -541,15 +542,22 @@ export default function GameRoom() {
           /></div>
         </div>}
 
-        <details className="spectator-menu">
-          <summary>观战 {gameState?.spectators.length || 0}</summary>
-          <div className="spectator-menu-list">
-            {!gameState?.spectators.length && <p>暂无观察者</p>}
-            {gameState?.spectators.map(person => <div key={person.id}><span>{person.name}</span>
-              {isRoomOwner && !isSpectator && <button className="btn-danger" onClick={() => getSocket()?.emit('kick_spectator', { spectatorId: person.id })}>移除</button>}
-            </div>)}
+        <button type="button" className="spectator-menu" onClick={() => setSpectatorDialogOpen(true)}>
+          观战 {gameState?.spectators.length || 0}
+        </button>
+
+        {spectatorDialogOpen && <div style={styles.modal} onClick={() => setSpectatorDialogOpen(false)}>
+          <div className="spectator-dialog" style={styles.modalContent} onClick={event => event.stopPropagation()}>
+            <h3>观察者列表（{gameState?.spectators.length || 0}）</h3>
+            <div className="spectator-dialog-list">
+              {!gameState?.spectators.length && <p>暂无观察者</p>}
+              {gameState?.spectators.map(person => <div key={person.id}><span>{person.name}</span>
+                {isRoomOwner && !isSpectator && <button className="btn-danger" onClick={() => getSocket()?.emit('kick_spectator', { spectatorId: person.id })}>移除</button>}
+              </div>)}
+            </div>
+            <button className="btn-secondary" onClick={() => setSpectatorDialogOpen(false)}>关闭</button>
           </div>
-        </details>
+        </div>}
 
         {/* Round result modal */}
         {declarations.length > 0 && <div style={styles.modal}><div style={{ ...styles.modalContent, maxHeight: '80vh', overflowY: 'auto' }}>
