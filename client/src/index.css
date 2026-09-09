@@ -693,6 +693,8 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   z-index: 30;
 }
 
+.game-top-actions { display: contents; }
+
 .room-exit-actions {
   position: absolute;
   top: 16px;
@@ -927,35 +929,48 @@ button:disabled { cursor: default; }
 @media (max-width: 600px) and (orientation: portrait) {
   :root { --game-card-width: 23px; --game-card-height: 33px; --game-card-rank-size: 12px; --game-card-suit-size: 8px; --game-card-center-size: 15px; }
   .duel-scoreboard {
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     top: 6px;
     left: 6px;
-    min-width: 116px;
-    width: 116px;
+    min-width: 110px;
+    width: 110px;
     padding: 3px 4px;
   }
-  .duel-score-team { gap: 2px; font-size: 8px; }
-  .duel-score-team strong { min-width: 23px; padding: 1px 3px; font-size: 16px; }
+  .duel-score-team { min-width: 0; gap: 1px; font-size: 7px; }
+  .duel-score-team strong { min-width: 21px; padding: 1px 2px; font-size: 15px; }
   .duel-score-team strong em { font-size: 7px; }
   .duel-score-meta { margin-top: 2px; padding-top: 2px; font-size: 8px; }
-  .room-exit-actions { top: 6px; right: 6px; gap: 3px; }
-  .room-exit-actions button { min-height: 34px; padding: 4px 6px; font-size: 9px; }
+  .game-top-actions {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 50;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 3px;
+    max-width: calc(100% - 130px);
+  }
+  .room-exit-actions { position: static; display: flex; gap: 3px; }
+  .room-exit-actions button { min-height: 34px; padding: 4px 5px; font-size: 8px; white-space: nowrap; }
   .game-turn-status {
-    top: 44px;
-    right: 67px;
-    left: auto;
-    max-width: 105px;
-    min-height: 30px;
-    padding: 3px 6px;
-    font-size: 10px;
+    position: static;
+    flex: 0 1 auto;
+    max-width: 72px;
+    min-height: 34px;
+    padding: 3px 5px;
+    font-size: 9px;
+    white-space: nowrap;
   }
   .spectator-menu {
-    top: 44px;
-    right: 6px;
-    min-height: 30px;
-    padding: 3px 7px;
-    font-size: 10px;
+    position: static;
+    min-height: 34px;
+    padding: 3px 5px;
+    font-size: 9px;
+    white-space: nowrap;
   }
-  .player-seat { top: 120px; width: 30%; }
+  .player-seat { top: 82px; width: 30%; }
   .player-seat--left { left: 2%; }
   .player-seat--right { right: 2%; }
   .player-seat--top { left: 50%; }
@@ -969,9 +984,9 @@ button:disabled { cursor: default; }
     padding: 0;
     transform: none !important;
   }
-  .played-zone--top { top: clamp(205px, 28%, 235px); }
-  .played-zone--left { top: calc(clamp(205px, 28%, 235px) + 35px); }
-  .played-zone--right { top: calc(clamp(205px, 28%, 235px) + 105px); }
+  .played-zone--top { top: clamp(175px, 23%, 195px); }
+  .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 38px); }
+  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 114px); }
   .seat-action-pass { min-width: 0; font-size: 16px; }
   .seat-action-pass,
   .seat-action-cards {
@@ -996,16 +1011,18 @@ button:disabled { cursor: default; }
   }
   .seat-action-card { flex-basis: var(--game-card-width); }
   .game-center-play-area {
-    top: calc(clamp(205px, 28%, 235px) + 70px);
+    top: calc(clamp(175px, 23%, 195px) + 76px);
+    left: 0;
     width: 100%;
     max-width: 100%;
     overflow: visible;
     padding: 0;
+    transform: none;
   }
   .game-bottom-area { padding: 0 4px 4px; }
   .hand-scroll { max-height: 34dvh; }
   .hand-cards { --hand-card-width: 60px; --hand-card-height: 88px; --hand-card-rank-size: 26px; --hand-card-suit-size: 19px; --hand-card-center-size: 38px; }
-  .self-player-seat { top: calc(clamp(205px, 28%, 235px) + 100px); bottom: auto; left: 6px; }
+  .self-player-seat { top: calc(clamp(175px, 23%, 195px) + 108px); bottom: auto; left: 6px; }
   .game-play-actions { gap: 6px; }
   .game-play-actions button { min-width: 80px; }
   .is-spectator .spectator-hand { width: 44%; }
@@ -1301,10 +1318,10 @@ button:disabled { cursor: default; }
     --game-card-suit-size: 16px;
     --game-card-center-size: 30px;
   }
-  .played-zone--top { top: clamp(205px, 28%, 235px); }
-  .played-zone--left { top: calc(clamp(205px, 28%, 235px) + 68px); }
-  .game-center-play-area { top: calc(clamp(205px, 28%, 235px) + 136px); }
-  .played-zone--right { top: calc(clamp(205px, 28%, 235px) + 204px); }
+  .played-zone--top { top: clamp(175px, 23%, 195px); }
+  .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 74px); }
+  .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 148px); }
+  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 222px); }
   .seat-action-cards { min-height: 67px; }
   .seat-action-card + .seat-action-card {
     margin-left: calc(var(--game-card-width) * -0.48) !important;
@@ -1320,4 +1337,13 @@ button:disabled { cursor: default; }
     --hand-column-step: 41px;
     --hand-column-min: 38px;
   }
+}
+
+/* Reassert the compact portrait row positions after the legacy short-screen
+   rules, which otherwise move the self row back to the desktop midpoint. */
+@media (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
+  .played-zone--top { top: clamp(175px, 23%, 195px); }
+  .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 38px); }
+  .game-center-play-area { top: calc(clamp(175px, 23%, 195px) + 76px); left: 0; max-width: 100%; transform: none; }
+  .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 114px); }
 }

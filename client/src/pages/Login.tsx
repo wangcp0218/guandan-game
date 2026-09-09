@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
+import { GIT_VERSION } from '../buildInfo';
 
 export default function Login() {
   const [tab, setTab] = useState<'login' | 'register'>('login');
@@ -87,6 +88,7 @@ export default function Login() {
           </button>
         </div>
       </div>
+      <span style={styles.version}>版本 {GIT_VERSION}</span>
     </div>
   );
 }
@@ -158,5 +160,12 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 8,
     background: '#e6b422',
     color: '#333',
+  },
+  version: {
+    position: 'fixed',
+    right: 12,
+    bottom: 10,
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 11,
   },
 };

@@ -303,27 +303,32 @@ export default function GameRoom() {
           </div>
           <div className="duel-score-meta">第 {gameState?.roundNumber || 0} 局 · {isSpectator ? `队伍 ${leadingTeam === 0 ? 'A' : 'B'} 在台` : `${ownIsLeading ? '我方' : '对方'}在台`}</div>
         </div>
-        {!isSpectator && gameState?.phase !== 'round_end' && (
-          <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
-            <span>{turnMessage}</span>
-            {errorMsg && <span className="game-turn-error">{errorMsg}</span>}
+        <div className="game-top-actions">
+          {!isSpectator && gameState?.phase !== 'round_end' && (
+            <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
+              <span>{turnMessage}</span>
+              {errorMsg && <span className="game-turn-error">{errorMsg}</span>}
+            </div>
+          )}
+          <button type="button" className="spectator-menu" onClick={() => setSpectatorDialogOpen(true)}>
+            观战 {gameState?.spectators.length || 0}
+          </button>
+          <div className="room-exit-actions">
+            <button
+              className="btn-danger"
+              onClick={handleLeaveRoom}
+            >
+              退出房间
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={handleLogout}
+            >
+              退出登录
+            </button>
           </div>
-        )}
-        {tributeNotice && <div className="tribute-notice">{tributeNotice}</div>}
-        <div className="room-exit-actions">
-          <button
-            className="btn-danger"
-            onClick={handleLeaveRoom}
-          >
-            退出房间
-          </button>
-          <button
-            className="btn-secondary"
-            onClick={handleLogout}
-          >
-            退出登录
-          </button>
         </div>
+        {tributeNotice && <div className="tribute-notice">{tributeNotice}</div>}
 
         {/* Top — 对家 (partner) */}
         <div className="player-seat player-seat--top">
@@ -541,10 +546,6 @@ export default function GameRoom() {
             currentLevel={currentLevel}
           /></div>
         </div>}
-
-        <button type="button" className="spectator-menu" onClick={() => setSpectatorDialogOpen(true)}>
-          观战 {gameState?.spectators.length || 0}
-        </button>
 
         {spectatorDialogOpen && <div style={styles.modal} onClick={() => setSpectatorDialogOpen(false)}>
           <div className="spectator-dialog" style={styles.modalContent} onClick={event => event.stopPropagation()}>

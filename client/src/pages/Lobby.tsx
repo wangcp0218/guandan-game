@@ -3,6 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { AiProvider, GamePhase, RoomInfo } from '../sharedTypes';
+import { GIT_VERSION } from '../buildInfo';
+
+function defaultRoomName() {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(now.getMonth() + 1)}月${pad(now.getDate())}日 ${pad(now.getHours())}:${pad(now.getMinutes())}牌局`;
+}
 
 export default function Lobby() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
@@ -105,6 +112,7 @@ export default function Lobby() {
   };
 
   const openCreateRoom = () => {
+    setRoomName(defaultRoomName());
     setShowCreate(true);
     setInfo('');
     loadAiModels(aiProvider);
@@ -167,6 +175,7 @@ export default function Lobby() {
         <div>
           <h2 style={styles.logo}>🃏 掼蛋大厅</h2>
           <span style={styles.user}>欢迎, {username}</span>
+          <span style={styles.version}>版本 {GIT_VERSION}</span>
         </div>
         <div style={styles.headerActions}>
           <button className="btn-secondary" onClick={refreshRooms}>刷新</button>
@@ -353,6 +362,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     color: 'rgba(255,255,255,0.6)',
     marginLeft: 12,
+  },
+  version: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.42)',
+    marginLeft: 10,
   },
   content: {
     flex: 1,
