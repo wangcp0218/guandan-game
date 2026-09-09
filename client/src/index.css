@@ -980,8 +980,7 @@ button:disabled { cursor: default; }
 /* Safari can expose a landscape phone as a wide CSS viewport, so screen width
    alone is not a reliable mobile detector. Coarse-pointer devices use this
    layout too, even when their reported width exceeds 1000px. */
-@media (max-width: 1450px) and (max-height: 700px) and (orientation: landscape),
-       (hover: none) and (pointer: coarse) and (orientation: landscape) {
+@media (max-width: 0px) {
   .game-room { padding: 4px; }
   .game-table {
     display: grid !important;
@@ -1116,4 +1115,34 @@ button:disabled { cursor: default; }
   .game-room.is-waiting .game-table { grid-template-rows: 62px minmax(0, 1fr) 0 0; }
   .game-room.is-waiting .game-center-play-area { grid-column: 1 / -1; grid-row: 2; padding: 0; }
   .game-room.is-waiting .player-seat, .game-room.is-waiting .self-player-seat, .game-room.is-waiting .spectator-menu { display: none; }
+}
+
+/* Portrait phones use suit columns so the complete hand stays visible without
+   a horizontal scrolling strip. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .game-bottom-area { padding: 0 4px 4px; }
+  .hand-scroll {
+    max-height: 36dvh;
+    overflow: hidden;
+    padding: 4px 0 0;
+  }
+  .hand-cards {
+    width: 100%;
+    min-width: 0;
+    height: 100% !important;
+    padding: 0 2px;
+    --hand-card-width: 47px;
+    --hand-card-height: 68px;
+    --hand-card-rank-size: 24px;
+    --hand-card-suit-size: 17px;
+    --hand-card-center-size: 34px;
+    --hand-stack-rise: 9px;
+    --hand-column-step: 51px;
+    --hand-column-min: 43px;
+    justify-content: space-evenly;
+    align-items: flex-end;
+  }
+  .hand-card-group { flex-shrink: 1; }
+  .hand-card-slot { width: var(--hand-card-width); height: var(--hand-card-height); }
+  .playing-card.is-selected, .playing-card.is-selected:hover { transform: translateY(-5px); }
 }
