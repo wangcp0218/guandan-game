@@ -1263,9 +1263,9 @@ button:disabled { cursor: default; }
     --hand-card-rank-size: 24px;
     --hand-card-suit-size: 17px;
     --hand-card-center-size: 34px;
-    --hand-stack-rise: 20px;
-    --hand-column-step: 45px;
-    --hand-column-min: 42px;
+    --hand-stack-rise: 26px;
+    --hand-column-step: 53px;
+    --hand-column-min: 50px;
     justify-content: flex-start;
     align-items: flex-end;
   }
@@ -1333,9 +1333,9 @@ button:disabled { cursor: default; }
     --hand-card-rank-size: 22px;
     --hand-card-suit-size: 16px;
     --hand-card-center-size: 31px;
-    --hand-stack-rise: 18px;
-    --hand-column-step: 41px;
-    --hand-column-min: 38px;
+    --hand-stack-rise: 26px;
+    --hand-column-step: 49px;
+    --hand-column-min: 46px;
   }
 }
 
