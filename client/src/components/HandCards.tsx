@@ -8,7 +8,7 @@ interface Props {
   onToggle: (id: number) => void;
   onToggleStack: (ids: number[]) => void;
   currentLevel: number;
-  /** Compact landscape groups by suit, leaving only a few horizontal columns. */
+  /** Portrait phones group jokers, level cards, then the four suits. */
   groupBySuit?: boolean;
 }
 
@@ -21,6 +21,8 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
   if (cards.length === 0) return null;
 
   const groupKey = (card: Card) => {
+    if (groupBySuit && (card.rank === Rank.BigJoker || card.rank === Rank.SmallJoker)) return 'jokers';
+    if (groupBySuit && card.rank === currentLevel) return 'level';
     if (card.rank === Rank.BigJoker || card.rank === Rank.SmallJoker) return `joker-${card.rank}`;
     return groupBySuit ? `suit-${card.suit}` : `rank-${card.rank}`;
   };
@@ -32,9 +34,15 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
   };
   const displayedCards = groupBySuit
     ? [...cards].sort((a, b) => {
-      const aJoker = a.rank === Rank.BigJoker || a.rank === Rank.SmallJoker;
-      const bJoker = b.rank === Rank.BigJoker || b.rank === Rank.SmallJoker;
-      if (aJoker || bJoker) return Number(bJoker) - Number(aJoker) || b.rank - a.rank;
+      const groupOrder = (card: Card) => {
+        if (card.rank === Rank.BigJoker || card.rank === Rank.SmallJoker) return 6;
+        if (card.rank === currentLevel) return 5;
+        return suitOrder[card.suit];
+      };
+      const orderDiff = groupOrder(b) - groupOrder(a);
+      if (orderDiff) return orderDiff;
+      const bothJokers = [a, b].every(card => card.rank === Rank.BigJoker || card.rank === Rank.SmallJoker);
+      if (bothJokers) return b.rank - a.rank || b.id - a.id;
       return suitOrder[b.suit] - suitOrder[a.suit] || b.rank - a.rank || b.id - a.id;
     })
     : cards;
@@ -47,8 +55,8 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
   }
 
   const maxStack = Math.max(...groups.map(group => group.length));
-  // The compact landscape hand has 124px of vertical room. Compress only the
-  // overlap distance when one suit is unusually large, so no card is clipped.
+  // Compress only the overlap distance when one suit is unusually large, so
+  // the complete portrait hand remains visible.
   const compactStackRise = Math.max(2, Math.min(10, Math.floor(68 / Math.max(1, maxStack - 1))));
   const stackHeight = maxStack > 1
     ? `calc(var(--hand-card-height) + ${Array.from({ length: maxStack - 1 }, () => 'var(--hand-stack-rise)').join(' + ')})`

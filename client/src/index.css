@@ -907,7 +907,7 @@ button:disabled { cursor: default; }
 }
 
 @media (max-width: 600px) and (orientation: portrait) {
-  :root { --game-card-width: 48px; --game-card-height: 70px; --game-card-rank-size: 23px; --game-card-suit-size: 17px; --game-card-center-size: 31px; }
+  :root { --game-card-width: 34px; --game-card-height: 49px; --game-card-rank-size: 16px; --game-card-suit-size: 12px; --game-card-center-size: 22px; }
   .player-seat { top: 120px; width: 30%; }
   .player-seat--left { left: 2%; }
   .player-seat--right { right: 2%; }
@@ -918,11 +918,13 @@ button:disabled { cursor: default; }
   .played-zone--right { right: 1%; }
   .played-zone--top { left: 50%; }
   .seat-action-pass { min-width: 0; font-size: 22px; }
+  .seat-action-cards { min-height: 52px; padding: 3px 4px; }
+  .seat-action-card { flex-basis: var(--game-card-width); }
   .game-center-play-area { top: 46%; max-width: 90%; overflow: auto; padding-top: 20px; }
   .game-bottom-area { padding: 0 4px 4px; }
   .hand-scroll { max-height: 34dvh; }
   .hand-cards { --hand-card-width: 60px; --hand-card-height: 88px; --hand-card-rank-size: 26px; --hand-card-suit-size: 19px; --hand-card-center-size: 38px; }
-  .self-player-seat { bottom: 41%; }
+  .self-player-seat { bottom: 42%; }
   .game-play-actions { gap: 6px; }
   .game-play-actions button { min-width: 80px; }
   .is-spectator .spectator-hand { width: 44%; }
@@ -1120,9 +1122,31 @@ button:disabled { cursor: default; }
 /* Portrait phones use suit columns so the complete hand stays visible without
    a horizontal scrolling strip. */
 @media (max-width: 600px) and (orientation: portrait) {
-  .game-bottom-area { padding: 0 4px 4px; }
+  .game-bottom-area {
+    height: 40dvh;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 56px;
+    padding: 0 4px max(4px, env(safe-area-inset-bottom));
+  }
+  .game-action-bar {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: end;
+    margin: 0;
+  }
+  .game-play-actions { width: 100%; }
+  .game-play-actions button {
+    min-width: 0;
+    min-height: 48px;
+    padding: 7px 12px !important;
+    font-size: 14px !important;
+  }
   .hand-scroll {
-    max-height: 36dvh;
+    grid-column: 1;
+    grid-row: 1;
+    height: 100%;
+    max-height: none;
     overflow: hidden;
     padding: 4px 0 0;
   }
