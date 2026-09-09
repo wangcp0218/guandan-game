@@ -260,8 +260,31 @@ function applyStrategicGuards(
 
 function chooseGuardedFreePlayFallback(
   plays: CardPattern[],
+  hand: Card[],
   currentLevel: number,
 ): CardPattern | null {
+  const handCounts = getRankCounts(hand);
+  const doesNotBreakBomb = (play: CardPattern) => {
+    const playedCounts = getRankCounts(play.cards);
+    return Array.from(playedCounts.entries()).every(([rank, cards]) => {
+      const heldCount = handCounts.get(rank)?.length || 0;
+      return heldCount < 4 || cards.length === heldCount;
+    });
+  };
+  const combinations = plays.filter(play =>
+    play.cards.length > 1 && !isBombPattern(play) && doesNotBreakBomb(play)
+  );
+  if (combinations.length > 0) {
+    return combinations.reduce((best, play) => {
+      if (play.cards.length !== best.cards.length) {
+        return play.cards.length > best.cards.length ? play : best;
+      }
+      return effectiveRank(play.rank, currentLevel) < effectiveRank(best.rank, currentLevel)
+        ? play
+        : best;
+    });
+  }
+
   const singles = plays.filter(play =>
     play.type === PatternType.Single && !isJoker(play.cards[0])
   );
@@ -280,6 +303,29 @@ function chooseGuardedFreePlayFallback(
   return plays[0] || null;
 }
 
+function orderFreePlayCandidates(
+  plays: CardPattern[],
+  hand: Card[],
+  currentLevel: number,
+): CardPattern[] {
+  const handCounts = getRankCounts(hand);
+  const score = (play: CardPattern) => {
+    if (play.cards.length === hand.length) return 100_000;
+    if (isBombPattern(play)) return 0;
+    const playedCounts = getRankCounts(play.cards);
+    const breaksBomb = Array.from(playedCounts.entries()).some(([rank, cards]) => {
+      const heldCount = handCounts.get(rank)?.length || 0;
+      return heldCount >= 4 && cards.length < heldCount;
+    });
+    if (play.cards.length > 1) {
+      return (breaksBomb ? 2_000 : 10_000) + play.cards.length * 100
+        - effectiveRank(play.rank, currentLevel);
+    }
+    return 1_000 - effectiveRank(play.cards[0].rank, currentLevel);
+  };
+  return [...plays].sort((a, b) => score(b) - score(a));
+}
+
 export function findBestPlay(
   hand: Card[],
   lastPattern: CardPattern | null,
@@ -295,22 +341,7 @@ export function findBestPlay(
   if (legalPlays.length === 0) return null;
 
   if (isFreePlay || !lastPattern) {
-    const singles = legalPlays.filter(p =>
-      p.type === PatternType.Single
-      && !isJoker(p.cards[0])
-      && !isWildCard(p.cards[0], currentLevel)
-    );
-    if (singles.length > 0) {
-      const minSingle = singles.reduce((a, b) =>
-        effectiveRank(a.cards[0].rank, currentLevel) < effectiveRank(b.cards[0].rank, currentLevel) ? a : b
-      );
-      return minSingle;
-    }
-
-    const pairs = legalPlays.filter(p => p.type === PatternType.Pair && p.rank < Rank.SmallJoker);
-    if (pairs.length > 0) {
-      return pairs.reduce((a, b) => a.rank < b.rank ? a : b);
-    }
+    return chooseGuardedFreePlayFallback(legalPlays, hand, currentLevel);
   }
 
   if (!isFreePlay && lastPattern) {
@@ -372,12 +403,15 @@ export async function findSmartPlay(
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
   legalPlays = applyStrategicGuards(legalPlays, hand, currentLevel, isFreePlay, context);
+  if (isFreePlay) {
+    legalPlays = orderFreePlayCandidates(legalPlays, hand, currentLevel);
+  }
 
   const guardedRuleResult = ruleResult && legalPlays.some(play =>
     strategicPlayKey(play) === strategicPlayKey(ruleResult)
   ) ? ruleResult : null;
   const fallbackResult = guardedRuleResult
-    || (isFreePlay ? chooseGuardedFreePlayFallback(legalPlays, currentLevel) : null);
+    || (isFreePlay ? chooseGuardedFreePlayFallback(legalPlays, hand, currentLevel) : null);
 
   try {
     const llmResult = await llmFindBestPlay(

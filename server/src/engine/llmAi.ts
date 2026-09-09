@@ -32,6 +32,9 @@ export interface AiDecisionContext {
   selfSeatIndex: number;
   partnerSeatIndex: number;
   lastPlayPlayerIndex: number;
+  roundNumber: number;
+  teamLevels: [number, number];
+  leadingTeam: 0 | 1;
   players: AiPlayerSnapshot[];
   recentActions: AiRecentAction[];
 }
@@ -187,11 +190,27 @@ export async function llmFindBestPlay(
   if (!providerConfig.apiKey || !normalizedSelection.model) return undefined;
   if (legalPlays.length === 0) return isFreePlay ? undefined : null;
 
-  const systemPrompt = `你是四人掼蛋的高水平搭档型AI。你不需要判断牌型合法性，服务端已给出一组经过校验的候选方案，只能选择候选的option_id。
-你的目标是让自己与对家组成的队伍获得尽可能好的名次，而不是只顾自己最快出完。
-关键规则：红桃级牌是逢人配，可代替除大小王外的任意点数和花色；大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2。顺子固定5张，A可作1，2可参与连牌；三连对、二连三同理。三带二只比三张部分。炸弹先比张数、再比点数；同花顺介于五张炸弹和六张炸弹之间；天王炸最大。
-策略：优先帮助即将出完的队友；对手剩1至2张时主动封堵，优先夺回出牌权；下家剩5张时优先用对子、三张或高单限制其成套；队友剩5张以下时，自己无法形成优势就让牌给队友。红桃级牌作为逢人配应优先用于组合，除非紧急拦截报单对手，否则绝不单出；队友领牌时默认不压，绝不使用炸弹压队友，除非该手能让自己立即出完。非必要不拆炸弹、同花顺、顺子、三连对和整齐组合；能用普通牌压制就不用炸弹，炸弹只用于抢出牌权、阻断对手报牌或制造己方上游。自由出牌优先清理孤张或一次多出牌，但要结合队友与对手余牌；牌势弱时优先保留顺子和对子等结构，牌势强时可用小单起手建立节奏。自由出牌若选择单张，必须优先使用低有效点数的普通孤张；手中还有普通牌时绝不能以大王、小王或级牌单张起手。对手长时间不走牌、早早出顺或中途空放都只是牌势信号，不能当作确定事实，要结合已知余牌谨慎判断。
-请简短权衡本轮局势，只输出JSON。`;
+  const systemPrompt = `你是一名高水平竞技掼蛋选手，熟悉牌型、进贡还贡、逢人配、升级、双人协作、记牌、牌权控制和残局计算。你的任务不是单纯尽快出完，而是与对家合作，最大化本方双上、升级并避免对方双上的概率。
+
+【规则与执行边界】
+使用两副牌、四人两队、对家为队友。牌型包括单张、对子、三张、三带二、固定5张顺子、固定3连对、固定2连三钢板、炸弹、同花顺和四王炸。红桃级牌是逢人配，可代替除大小王外的任意牌。牌力为大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹先比张数再比点数，同花顺大于五炸小于六炸，四王炸最大。平台传入的规则与合法动作集合拥有最高优先级。你不判断合法性，只能选择legal_actions中的action_id，绝不能创造动作或修改动作里的牌。
+
+【信息边界】
+只能使用本轮输入中的自己手牌、桌面牌、玩家剩余牌数、最近公开行动、当前级牌和合法动作。不得假设知道其他玩家实际手牌，不得使用隐藏信息，不得把推断当成事实。对未知牌只能使用概率判断；未提供完整公开牌历史时，不得声称完成了精确记牌。
+
+【决策优先级】
+1. 最大化本方取得有利名次和升级的概率；2. 争取本方双上；3. 避免对方双上；4. 帮助队友取得头游；5. 控制关键牌权；6. 保存炸弹、同花顺和逢人配的战略价值；7. 减少孤张并优化手牌结构；8. 收益接近时选择风险更低、信息暴露更少的打法。必要时主动让牌、送队友、阻击对手或牺牲自己的名次。
+
+【行动前检查】
+在内部依次检查但不要输出冗长思维过程：当前牌权与阶段；各家余牌及主要威胁；自己的自然成牌、孤张与拆牌风险；逢人配最佳用途；关键牌和炸弹的概率分布；队友近期行动与送牌机会；对手报单/报双风险；每个主要候选的即时收益、续牌能力、被反压概率、队友收益、对手收益、牌型成本及双上概率变化。
+
+【阶段策略】
+开局整理结构、确定主攻与辅助，不为试探反复出单。中盘根据余牌和行动历史传递己方牌权，不为低价值一轮破坏整体结构。任何玩家剩5张以内进入残局规划，按一手、两手、三手计算；对手报单保留单张控制，对手报双保留对子控制，队友报单/报双尽量创造对应牌型。自由出牌默认优先不拆炸弹的多张自然牌型，不要连续以“试探”为由出单；只有确需清理孤张或多张动作明显破坏关键结构时才出小单。
+
+【协作与炸弹】
+队友牌默认不压；接队友牌必须为了直接走完、阻击对手或重新送牌。队友是主攻者时承担拦截、拆牌和送牌职责。炸弹并非越晚越好：能阻止对手走牌、帮助队友走牌或形成连续牌权时果断使用；不要用炸弹赢低价值牌，炸后还要评估能否续牌。红桃级牌优先用于组合，除紧急拦截报单对手外不单出。稳健但不机械保守，信息不足时作概率化的稳健决策。
+
+只输出一个JSON对象，不得输出JSON以外内容。`;
 
   const lastPlayerSnapshot = context?.players.find(player =>
     player.seatIndex === context.lastPlayPlayerIndex
@@ -200,22 +219,48 @@ export async function llmFindBestPlay(
   const lastPlayer = lastPlayerSnapshot
     ? `座位${lastPlayerSnapshot.seatIndex}（${relationNames[lastPlayerSnapshot.relation]}）`
     : '无';
-  const userPrompt = `当前是${currentLevel}级，自己座位${context?.selfSeatIndex ?? '未知'}，队友座位${context?.partnerSeatIndex ?? '未知'}。
-阶段：${isFreePlay ? '自由出牌，必须选择一个候选方案' : '跟牌，可以选择候选方案或不出'}。
-自己的手牌：${describeHand(hand, currentLevel)}
-上一手出牌者：${lastPlayer}
-上一手：${describePattern(lastPattern)}
-
-玩家状态：
-${describePlayers(context)}
-
-最近行动（由早到晚）：
-${describeHistory(context)}
-
-合法候选方案：
-${describeOptions(legalPlays)}
-
-返回格式：{"option_id":数字或null,"reason":"不超过40字的策略理由"}。只有跟牌且决定不出时option_id才可为null。`;
+  const minimumActiveCount = context?.players
+    .filter(player => player.finishRank === null)
+    .reduce((minimum, player) => Math.min(minimum, player.cardCount), Number.POSITIVE_INFINITY);
+  const stage = minimumActiveCount !== undefined && minimumActiveCount <= 5
+    ? '残局'
+    : hand.length >= 20 ? '开局' : hand.length >= 10 ? '中盘' : '收官';
+  const input = {
+    seat: context?.selfSeatIndex ?? '未知',
+    partner_seat: context?.partnerSeatIndex ?? '未知',
+    seat_order: '座位0→座位1→座位2→座位3→座位0（顺时针）',
+    level_rank: currentLevel,
+    match_state: context
+      ? `第${context.roundNumber}局，队伍A ${context.teamLevels[0]}级，队伍B ${context.teamLevels[1]}级，队伍${context.leadingTeam === 0 ? 'A' : 'B'}在台`
+      : '未提供',
+    stage,
+    turn_mode: isFreePlay ? '自由出牌，必须选择动作' : '跟牌，可选择合法动作或PASS',
+    hand: describeHand(hand, currentLevel),
+    wildcards: hand
+      .filter(card => card.rank === currentLevel && card.suit === 'H')
+      .map(card => cardDisplayName(card)),
+    current_trick: {
+      player: lastPlayer,
+      pattern: describePattern(lastPattern),
+    },
+    remaining_counts: context?.players.map(player => ({
+      seat: player.seatIndex,
+      relation: relationNames[player.relation],
+      cards: player.cardCount,
+      finish_rank: player.finishRank,
+    })) || [],
+    public_history_scope: '最近最多12步；未提供完整公开牌池，不得假装精确记牌',
+    action_history: describeHistory(context).split('\n'),
+    legal_actions: legalPlays.map((option, actionId) => ({
+      action_id: actionId,
+      type: PATTERN_NAMES[option.type],
+      cards: option.cards.map(card => cardDisplayName(card)),
+      rank: option.rank,
+      length: option.length,
+    })),
+  };
+  const userPrompt = `请根据以下牌桌输入选择动作：\n${JSON.stringify(input)}\n
+输出格式：{"action_id":数字或"PASS","cards":["仅用于复述所选动作"],"intent":"走牌/控权/送队友/阻击对手/整理牌型/试探/保留实力","confidence":0.00,"brief_reason":"不超过80个汉字","risk":"主要风险"}。只有跟牌时可选择PASS。`;
 
   try {
     const controller = new AbortController();
@@ -229,7 +274,7 @@ ${describeOptions(legalPlays)}
           { role: 'user', content: userPrompt },
         ],
         temperature: 0.25,
-        max_tokens: 256,
+        max_tokens: 384,
       };
       if (normalizedSelection.provider === 'deepseek') {
         requestBody.thinking = { type: 'disabled' };
@@ -257,10 +302,13 @@ ${describeOptions(legalPlays)}
     const content = data.choices?.[0]?.message?.content;
     if (!content) return undefined;
     const parsed = parseModelResponse(content);
-    const optionId = parsed.option_id;
-
-    const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 80) : '未提供理由';
-    if (optionId === null) {
+    const rawActionId = parsed.action_id ?? parsed.option_id;
+    const optionId = typeof rawActionId === 'string' && /^\d+$/.test(rawActionId)
+      ? Number(rawActionId)
+      : rawActionId;
+    const reasonSource = parsed.brief_reason ?? parsed.reason;
+    const reason = typeof reasonSource === 'string' ? reasonSource.slice(0, 80) : '未提供理由';
+    if (rawActionId === 'PASS' || optionId === null) {
       if (isFreePlay) {
         console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] rejected pass during free play; using rule-based AI`);
         return undefined;

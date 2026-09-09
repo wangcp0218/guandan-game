@@ -1211,13 +1211,13 @@ button:disabled { cursor: default; }
   }
   .game-bottom-area { height: 30dvh; }
   .hand-cards {
-    --hand-card-width: 71px;
-    --hand-card-height: 102px;
-    --hand-card-rank-size: 36px;
-    --hand-card-suit-size: 26px;
-    --hand-card-center-size: 51px;
-    --hand-stack-rise: 30px;
-    --hand-column-step: 68px;
-    --hand-column-min: 63px;
+    --hand-card-width: 43px;
+    --hand-card-height: 61px;
+    --hand-card-rank-size: 22px;
+    --hand-card-suit-size: 16px;
+    --hand-card-center-size: 31px;
+    --hand-stack-rise: 18px;
+    --hand-column-step: 41px;
+    --hand-column-min: 38px;
   }
 }

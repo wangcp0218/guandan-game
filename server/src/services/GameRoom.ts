@@ -700,6 +700,9 @@ export class GameRoom {
       selfSeatIndex: playerIdx,
       partnerSeatIndex,
       lastPlayPlayerIndex: this.state?.lastPlayPlayerIndex ?? -1,
+      roundNumber: this.roundNumber,
+      teamLevels: [...this.teamLevels] as [number, number],
+      leadingTeam: this.leadingTeam,
       players: this.players.map((player, seatIndex) => ({
         seatIndex,
         cardCount: this.hands.get(player.id)?.length || 0,
