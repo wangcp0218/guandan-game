@@ -30,15 +30,6 @@ export default function GameRoom() {
   const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
   const [tributeNotice, setTributeNotice] = useState('');
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
-  const [portraitSuitHand, setPortraitSuitHand] = useState(false);
-
-  useEffect(() => {
-    const query = window.matchMedia('(orientation: portrait) and (max-width: 600px)');
-    const sync = () => setPortraitSuitHand(query.matches);
-    sync();
-    query.addEventListener('change', sync);
-    return () => query.removeEventListener('change', sync);
-  }, []);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -543,7 +534,6 @@ export default function GameRoom() {
             onToggle={toggleCardSelection}
             onToggleStack={toggleCardStackSelection}
             currentLevel={currentLevel}
-            groupBySuit={portraitSuitHand}
           /></div>
         </div>}
 

@@ -907,24 +907,38 @@ button:disabled { cursor: default; }
 }
 
 @media (max-width: 600px) and (orientation: portrait) {
-  :root { --game-card-width: 34px; --game-card-height: 49px; --game-card-rank-size: 16px; --game-card-suit-size: 12px; --game-card-center-size: 22px; }
+  :root { --game-card-width: 23px; --game-card-height: 33px; --game-card-rank-size: 12px; --game-card-suit-size: 8px; --game-card-center-size: 15px; }
   .player-seat { top: 120px; width: 30%; }
   .player-seat--left { left: 2%; }
   .player-seat--right { right: 2%; }
   .player-seat--top { left: 50%; }
   .player-info { margin: auto; }
-  .played-zone { top: 210px; width: 30%; max-width: 30%; }
-  .played-zone--left { left: 1%; }
-  .played-zone--right { right: 1%; }
-  .played-zone--top { left: 50%; }
-  .seat-action-pass { min-width: 0; font-size: 22px; }
-  .seat-action-cards { min-height: 52px; padding: 3px 4px; }
+  .played-zone {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+    padding: 0;
+    transform: none !important;
+  }
+  .played-zone--top { top: clamp(205px, 28%, 235px); }
+  .played-zone--left { top: calc(clamp(205px, 28%, 235px) + 35px); }
+  .played-zone--right { top: calc(clamp(205px, 28%, 235px) + 70px); }
+  .seat-action-pass { min-width: 0; font-size: 16px; }
+  .seat-action-cards { width: 100%; min-height: 34px; padding: 0 3px; }
   .seat-action-card { flex-basis: var(--game-card-width); }
-  .game-center-play-area { top: 46%; max-width: 90%; overflow: auto; padding-top: 20px; }
+  .game-center-play-area {
+    top: calc(clamp(205px, 28%, 235px) + 105px);
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+    padding: 0;
+  }
   .game-bottom-area { padding: 0 4px 4px; }
   .hand-scroll { max-height: 34dvh; }
   .hand-cards { --hand-card-width: 60px; --hand-card-height: 88px; --hand-card-rank-size: 26px; --hand-card-suit-size: 19px; --hand-card-center-size: 38px; }
-  .self-player-seat { bottom: 42%; }
+  .self-player-seat { top: calc(clamp(205px, 28%, 235px) + 100px); bottom: auto; left: 6px; }
   .game-play-actions { gap: 6px; }
   .game-play-actions button { min-width: 80px; }
   .is-spectator .spectator-hand { width: 44%; }
@@ -1119,8 +1133,8 @@ button:disabled { cursor: default; }
   .game-room.is-waiting .player-seat, .game-room.is-waiting .self-player-seat, .game-room.is-waiting .spectator-menu { display: none; }
 }
 
-/* Portrait phones use suit columns so the complete hand stays visible without
-   a horizontal scrolling strip. */
+/* Portrait phones keep rank ordering and expose overflow as a touch-friendly
+   horizontal strip. The hand and controls occupy separate rows. */
 @media (max-width: 600px) and (orientation: portrait) {
   .game-bottom-area {
     height: 40dvh;
@@ -1147,12 +1161,15 @@ button:disabled { cursor: default; }
     grid-row: 1;
     height: 100%;
     max-height: none;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 4px 0 0;
   }
   .hand-cards {
-    width: 100%;
-    min-width: 0;
+    width: max-content;
+    min-width: 100%;
     height: 100% !important;
     padding: 0 2px;
     --hand-card-width: 47px;
@@ -1160,13 +1177,13 @@ button:disabled { cursor: default; }
     --hand-card-rank-size: 24px;
     --hand-card-suit-size: 17px;
     --hand-card-center-size: 34px;
-    --hand-stack-rise: 9px;
-    --hand-column-step: 51px;
-    --hand-column-min: 43px;
-    justify-content: space-evenly;
+    --hand-stack-rise: 20px;
+    --hand-column-step: 45px;
+    --hand-column-min: 42px;
+    justify-content: flex-start;
     align-items: flex-end;
   }
-  .hand-card-group { flex-shrink: 1; }
+  .hand-card-group { flex-shrink: 0; }
   .hand-card-slot { width: var(--hand-card-width); height: var(--hand-card-height); }
   .playing-card.is-selected, .playing-card.is-selected:hover { transform: translateY(-5px); }
 }
