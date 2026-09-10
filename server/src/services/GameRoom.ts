@@ -7,7 +7,7 @@ import { createDeck, shuffleDeck, dealCards, sortCards, isJoker, effectiveRank }
 import { identifyPattern, isValidPlay, declarePatterns } from '../engine/patterns';
 import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
 import { getTeam, getLevelDelta, canResistTribute, selectTributeCard, selectReturnTributeCard, isValidReturnTributeCard } from '../engine/rules';
-import { findBestPlay, findSmartPlay } from '../engine/ai';
+import { findBestPlay, findSmartPlay, generateLegalPlays } from '../engine/ai';
 import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
 import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 
@@ -194,15 +194,37 @@ export class GameRoom {
     }
   }
 
-  getHintCards(playerId: string): Card[] {
+  getHintCards(playerId: string, currentCardIds: number[] = []): Card[] {
     if (!this.state || this.state.phase !== GamePhase.Playing) return [];
     const playerIdx = this.players.findIndex(p => p.id === playerId);
     if (playerIdx !== this.state.currentPlayerIndex) return [];
     const hand = this.hands.get(playerId) || [];
     const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
-    const pattern = findBestPlay(hand, this.state.lastPlay, isFreePlay, this.state.currentLevel);
-    if (!pattern) return [];
-    return pattern.cards;
+    let legalPlays = generateLegalPlays(hand, this.state.currentLevel);
+    if (!isFreePlay && this.state.lastPlay) {
+      legalPlays = legalPlays.filter(pattern =>
+        canBeat(pattern, this.state!.lastPlay!, this.state!.currentLevel)
+      );
+    }
+    if (legalPlays.length === 0) return [];
+
+    // Keep the cycle predictable: ordinary combinations first, bombs last;
+    // within the same type show the weaker/smaller play before stronger ones.
+    legalPlays.sort((a, b) => {
+      const bombDelta = Number(isBombPattern(a)) - Number(isBombPattern(b));
+      if (bombDelta !== 0) return bombDelta;
+      if (a.cards.length !== b.cards.length) return b.cards.length - a.cards.length;
+      if (a.type !== b.type) return a.type.localeCompare(b.type);
+      return effectiveRank(a.rank, this.state!.currentLevel)
+        - effectiveRank(b.rank, this.state!.currentLevel);
+    });
+
+    const selectionKey = [...currentCardIds].sort((a, b) => a - b).join(',');
+    const currentIndex = legalPlays.findIndex(pattern =>
+      pattern.cards.map(card => card.id).sort((a, b) => a - b).join(',') === selectionKey
+    );
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % legalPlays.length : 0;
+    return legalPlays[nextIndex].cards;
   }
 
   startGame() {

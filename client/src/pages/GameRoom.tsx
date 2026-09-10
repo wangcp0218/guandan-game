@@ -509,7 +509,9 @@ export default function GameRoom() {
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={() => { getSocket()?.emit('hint'); }}
+                    onClick={() => {
+                      getSocket()?.emit('hint', { currentCardIds: [...selectedCardIds] });
+                    }}
                     disabled={!isMyTurn}
                     style={{
                       opacity: isMyTurn ? 1 : 0.3,

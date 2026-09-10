@@ -245,11 +245,14 @@ export function setupSocketHandlers(io: Server) {
       socket.emit('room_list', roomManager.getRoomList());
     });
 
-    socket.on('hint', () => {
+    socket.on('hint', (data?: { currentCardIds?: number[] }) => {
       if (!socket.userId || !socket.currentRoomId) return;
       const room = roomManager.getRoom(socket.currentRoomId);
       if (!room) return;
-      const cards = room.getHintCards(socket.userId);
+      const currentCardIds = Array.isArray(data?.currentCardIds)
+        ? data.currentCardIds.filter(Number.isInteger)
+        : [];
+      const cards = room.getHintCards(socket.userId, currentCardIds);
       socket.emit('hint_result', { cards });
     });
 
