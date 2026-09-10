@@ -362,9 +362,8 @@ export class GameRoom {
     if (!this.state) return;
     const first = previousRankings.find(item => item.rank === 1);
     const second = previousRankings.find(item => item.rank === 2);
-    const third = previousRankings.find(item => item.rank === 3);
     const last = previousRankings.find(item => item.rank === 4);
-    if (!first || !second || !third || !last) {
+    if (!first || !second || !last) {
       this.startPlayingPhase(0);
       return;
     }
@@ -372,7 +371,10 @@ export class GameRoom {
     const firstSeat = this.players.findIndex(player => player.id === first.playerId);
     const firstTeam = getTeam(firstSeat);
     const isDoubleDown = getTeam(this.players.findIndex(player => player.id === second.playerId)) === firstTeam;
-    const contributors = isDoubleDown ? [third, last] : [last];
+    // Double-down losers are tied, so there is no third-place player.
+    const contributors = isDoubleDown
+      ? previousRankings.filter(item => item.playerId !== first.playerId && item.playerId !== second.playerId)
+      : [last];
     const contributorHands = contributors.flatMap(item => this.hands.get(item.playerId) || []);
 
     this.state.phase = GamePhase.Tribute;
@@ -632,7 +634,10 @@ export class GameRoom {
       this.rankings.push({ playerId, rank });
       this.broadcastEvent('player_finish', { playerId, playerName: this.players[playerIdx].name, rank });
 
-      if (this.rankings.length >= MAX_PLAYERS) {
+      const doubleWin = this.rankings.length === 2
+        && getTeam(this.players.findIndex(p => p.id === this.rankings[0].playerId))
+          === getTeam(this.players.findIndex(p => p.id === this.rankings[1].playerId));
+      if (doubleWin || this.rankings.length >= MAX_PLAYERS - 1) {
         this.endRound();
         return { success: true };
       }
@@ -643,11 +648,6 @@ export class GameRoom {
       this.broadcastState();
       this.startTurn();
       return { success: true };
-    }
-
-    // Let the final remaining player play out every card without beating their own last play.
-    if (this.getActivePlayerCount() === 1) {
-      this.clearCurrentTrick();
     }
 
     this.advanceTurn();
@@ -802,9 +802,11 @@ export class GameRoom {
   private endRound() {
     if (!this.state) return;
 
-    const unranked = this.players.find(p => !this.rankings.some(r => r.playerId === p.id));
-    if (unranked) {
-      this.rankings.push({ playerId: unranked.id, rank: MAX_PLAYERS });
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    this.turnTimer = null;
+    const unranked = this.players.filter(p => !this.rankings.some(r => r.playerId === p.id));
+    for (const player of unranked) {
+      this.rankings.push({ playerId: player.id, rank: MAX_PLAYERS });
     }
 
     const winner = this.rankings.find(r => r.rank === 1)!;

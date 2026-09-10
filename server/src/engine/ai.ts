@@ -1,7 +1,7 @@
 import { AiModelSelection, Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import { effectiveRank, isJoker } from './card';
 import {
-  isWildCard,
+  isWildCard, validWildSubstitutions,
 } from './patterns';
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
@@ -129,6 +129,7 @@ export function generateLegalPlays(
   const seen = new Set<string>();
 
   const add = (pattern: CardPattern) => {
+    if (!validWildSubstitutions(pattern.cards, pattern.substitutions || [], currentLevel)) return;
     const ids = pattern.cards.map(card => card.id).sort((a, b) => a - b);
     const key = `${pattern.type}:${pattern.rank}:${ids.join(',')}`;
     if (new Set(ids).size !== ids.length || seen.has(key)) return;

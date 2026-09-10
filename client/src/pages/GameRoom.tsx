@@ -584,7 +584,8 @@ export default function GameRoom() {
               <p style={{ marginBottom: 8 }}>
                 排名: {roundResult.rankings.map(r => {
                   const p = gameState?.players.find(pl => pl.id === r.playerId);
-                  return `${p?.name || '?'} 第${r.rank}名`;
+                  const tiedLast = r.rank === 4 && roundResult.rankings.filter(item => item.rank === 4).length === 2;
+                  return `${p?.name || '?'} ${tiedLast ? '双下' : `第${r.rank}名`}`;
                 }).join(' | ')}
               </p>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 }}>

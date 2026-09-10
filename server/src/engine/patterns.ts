@@ -129,6 +129,18 @@ export function isWildCard(card: Card, currentLevel: number): boolean {
   return card.rank === (currentLevel as Rank) && card.suit === Suit.Heart;
 }
 
+/** 逢人配只能替代普通牌；不允许生成、补齐任何大小王。 */
+export function validWildSubstitutions(cards: Card[], substitutions: Card[], level: number): boolean {
+  const ids = new Set<number>();
+  return substitutions.every(replacement => {
+    if (ids.has(replacement.id)) return false;
+    ids.add(replacement.id);
+    return Number.isInteger(replacement.rank)
+      && replacement.rank >= Rank.Two && replacement.rank <= Rank.Ace
+      && cards.some(card => card.id === replacement.id && isWildCard(card, level));
+  });
+}
+
 function trySameRankWithWilds(
   regulars: Card[],
   allCards: Card[],
@@ -456,6 +468,7 @@ export function declarePatterns(cards: Card[], level: number): CardPattern[] {
   const found = new Map<string, CardPattern>();
   const visit = (index: number, substitutions: Card[]) => {
     if (index === wilds.length) {
+      if (!validWildSubstitutions(cards, substitutions, level)) return;
       const resolved = cards.map(card => substitutions.find(item => item.id === card.id) || card);
       const pattern = identifyRawPattern(resolved, -1);
       if (pattern) {

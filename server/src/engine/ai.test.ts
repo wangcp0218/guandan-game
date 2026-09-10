@@ -2,13 +2,41 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
 import { findBestPlay, generateLegalPlays } from './ai';
-import { declarePatterns } from './patterns';
+import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
 import type { AiDecisionContext } from './llmAi';
 
 function cards(specs: Array<[Suit, Rank]>): Card[] {
   return specs.map(([suit, rank], index) => ({ id: index + 1, suit, rank }));
 }
+
+test('wildcards cannot supply a joker in pairs, triples, full houses or king bombs', () => {
+  for (const joker of [Rank.SmallJoker, Rank.BigJoker]) {
+    const illegalHands = [
+      cards([[Suit.Heart, Rank.Two], [Suit.Spade, joker]]),
+      cards([[Suit.Heart, Rank.Two], [Suit.Spade, joker], [Suit.Spade, joker]]),
+      cards([[Suit.Heart, Rank.Two], [Suit.Spade, joker],
+        [Suit.Spade, Rank.Three], [Suit.Club, Rank.Three], [Suit.Diamond, Rank.Three]]),
+      cards([[Suit.Heart, Rank.Two], [Suit.Spade, Rank.SmallJoker],
+        [Suit.Spade, Rank.SmallJoker], [Suit.Heart, Rank.BigJoker]]),
+      cards([[Suit.Heart, Rank.Two], [Suit.Heart, Rank.Two],
+        [Suit.Spade, Rank.SmallJoker], [Suit.Heart, Rank.BigJoker]]),
+    ];
+    for (const hand of illegalHands) {
+      assert.equal(identifyPattern(hand, Rank.Two), null);
+      assert.deepEqual(declarePatterns(hand, Rank.Two), []);
+      assert.ok(!generateLegalPlays(hand, Rank.Two).some(play => play.cards.length === hand.length));
+    }
+    const wild = cards([[Suit.Heart, Rank.Two]]);
+    assert.equal(validWildSubstitutions(wild, [{ ...wild[0], rank: joker }], Rank.Two), false);
+    const legalHand = cards([
+      [Suit.Heart, Rank.Two], [Suit.Spade, Rank.Three], [Suit.Club, Rank.Three],
+      [Suit.Spade, joker], [Suit.Spade, joker],
+    ]);
+    assert.ok(declarePatterns(legalHand, Rank.Two).some(play => play.type === PatternType.TriplePair));
+    assert.ok(generateLegalPlays(legalHand, Rank.Two).some(play => play.type === PatternType.TriplePair));
+  }
+});
 
 test('wildcard straight retains ordinary declarations even with all-spade naturals', () => {
   const hand = cards([
