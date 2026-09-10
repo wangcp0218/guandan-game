@@ -126,6 +126,8 @@ export interface GameState {
   leadingTeam: 0 | 1;
   players: PlayerInfo[];
   currentPlayerIndex: number;
+  /** Server-authoritative deadline for the current play/return-tribute action. */
+  actionDeadline: number | null;
   lastPlay: CardPattern | null;
   lastPlayPlayerIndex: number;
   passCount: number;

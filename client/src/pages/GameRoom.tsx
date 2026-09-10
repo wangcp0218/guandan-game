@@ -32,6 +32,7 @@ export default function GameRoom() {
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
   const [spectatorDialogOpen, setSpectatorDialogOpen] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
+  const [actionCountdown, setActionCountdown] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -184,6 +185,21 @@ export default function GameRoom() {
     return () => clearInterval(loadInterval);
   }, [gameState?.roomId, myCards.length, spectatorMode]);
 
+  useEffect(() => {
+    const deadline = gameState?.actionDeadline;
+    if (!deadline || (gameState.phase !== 'playing' && gameState.phase !== 'return_tribute')) {
+      setActionCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      setActionCountdown(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 250);
+    return () => window.clearInterval(timer);
+  }, [gameState?.actionDeadline, gameState?.phase]);
+
   const handlePlay = () => {
     if (selectedCardIds.size === 0) {
       handlePass();
@@ -307,6 +323,11 @@ export default function GameRoom() {
           {!isSpectator && gameState?.phase !== 'round_end' && (
             <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
               <span>{turnMessage}</span>
+              {actionCountdown !== null && (
+                <span className="desktop-action-countdown">
+                  {gameState?.phase === 'return_tribute' ? '还贡' : '出牌'}倒计时 {actionCountdown}秒
+                </span>
+              )}
               {errorMsg && <span className="game-turn-error">{errorMsg}</span>}
             </div>
           )}

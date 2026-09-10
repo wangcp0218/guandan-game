@@ -762,6 +762,13 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   white-space: nowrap;
 }
 
+.desktop-action-countdown {
+  color: #ffe487;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .game-play-actions {
   display: flex;
   align-items: center;
@@ -905,6 +912,7 @@ button:disabled { cursor: default; }
 .game-room [style*="position: fixed"] > div { max-width: calc(100vw - 24px); max-height: 90dvh; overflow: auto; }
 
 @media (max-width: 900px) {
+  .desktop-action-countdown { display: none; }
   input, select { font-size: 16px !important; }
   .game-room > div { border-width: 4px; border-radius: 14px; }
   .duel-scoreboard { top: 6px; left: 6px; min-width: 132px; padding: 4px; }

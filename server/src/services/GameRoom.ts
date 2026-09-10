@@ -12,7 +12,8 @@ import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
 import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 
 const MAX_PLAYERS = 4;
-const TURN_TIMEOUT = 30000;
+const TURN_TIMEOUT = 60000;
+const RETURN_TRIBUTE_TIMEOUT = 60000;
 
 export class GameRoom {
   id: string;
@@ -274,6 +275,7 @@ export class GameRoom {
         isOnline: true,
       })),
       currentPlayerIndex: 0,
+      actionDeadline: null,
       lastPlay: null,
       lastPlayPlayerIndex: -1,
       passCount: 0,
@@ -318,6 +320,7 @@ export class GameRoom {
         isOnline: true,
       })),
       currentPlayerIndex: 0,
+      actionDeadline: null,
       lastPlay: null,
       lastPlayPlayerIndex: -1,
       passCount: 0,
@@ -484,11 +487,12 @@ export class GameRoom {
     const recipientIndex = this.players.findIndex(player => player.id === exchange.toPlayerId);
     const recipient = this.players[recipientIndex];
     this.state.currentPlayerIndex = recipientIndex;
+    this.state.actionDeadline = recipient.isAI ? null : Date.now() + RETURN_TRIBUTE_TIMEOUT;
     this.broadcastState();
     if (recipient.isAI) {
       setTimeout(() => this.autoReturnTribute(exchange), 350);
     } else {
-      this.turnTimer = setTimeout(() => this.autoReturnTribute(exchange), TURN_TIMEOUT);
+      this.turnTimer = setTimeout(() => this.autoReturnTribute(exchange), RETURN_TRIBUTE_TIMEOUT);
     }
   }
 
@@ -544,6 +548,8 @@ export class GameRoom {
     if (this.turnTimer) clearTimeout(this.turnTimer);
 
     const currentPlayer = this.players[this.state.currentPlayerIndex];
+    this.state.actionDeadline = Date.now() + TURN_TIMEOUT;
+    this.broadcastState();
     if (currentPlayer.isAI) {
       this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
       setTimeout(() => this.aiPlay(), 500);
