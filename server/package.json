@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "test": "npm run build && node --test dist/server/src/engine/*.test.js",
     "start": "node dist/server/src/index.js"
   },
   "dependencies": {

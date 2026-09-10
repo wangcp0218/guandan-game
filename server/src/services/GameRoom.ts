@@ -206,6 +206,15 @@ export class GameRoom {
         canBeat(pattern, this.state!.lastPlay!, this.state!.currentLevel)
       );
     }
+    // A wildcard card set may have several legal declarations. The hint UI
+    // selects physical cards only, so cycle each distinct card set once.
+    const seenCardSets = new Set<string>();
+    legalPlays = legalPlays.filter(pattern => {
+      const key = pattern.cards.map(card => card.id).sort((a, b) => a - b).join(',');
+      if (seenCardSets.has(key)) return false;
+      seenCardSets.add(key);
+      return true;
+    });
     if (legalPlays.length === 0) return [];
 
     // Keep the cycle predictable: ordinary combinations first, bombs last;
@@ -837,13 +846,17 @@ export class GameRoom {
       }
 
       if (pattern) {
-        this.playCards(player.id, pattern.cards);
+        this.playCards(player.id, pattern.cards, { type: pattern.type, rank: pattern.rank });
       } else {
         if (this.state.lastPlay) {
           this.handlePass(player.id);
         } else {
-          const fallback = findBestPlay(hand, null, true, this.state.currentLevel);
-          if (fallback) this.playCards(player.id, fallback.cards);
+          const fallback = findBestPlay(
+            hand, null, true, this.state.currentLevel, this.getAiDecisionContext(playerIdx),
+          );
+          if (fallback) {
+            this.playCards(player.id, fallback.cards, { type: fallback.type, rank: fallback.rank });
+          }
         }
       }
     } catch (e) {
@@ -855,9 +868,14 @@ export class GameRoom {
         const player = this.players[this.state.currentPlayerIndex];
         const hand = this.hands.get(player?.id) || [];
         if (hand.length > 0) {
-          const fallback = findBestPlay(hand, null, true, this.state.currentLevel);
+          const fallback = findBestPlay(
+            hand, null, true, this.state.currentLevel,
+            this.getAiDecisionContext(this.state.currentPlayerIndex),
+          );
           if (fallback) {
-            try { this.playCards(player.id, fallback.cards); } catch {}
+            try {
+              this.playCards(player.id, fallback.cards, { type: fallback.type, rank: fallback.rank });
+            } catch {}
           }
         }
       }
@@ -869,8 +887,13 @@ export class GameRoom {
     const player = this.players[this.state.currentPlayerIndex];
     if (!this.state.lastPlay) {
       const hand = this.hands.get(player.id) || [];
-      const fallback = findBestPlay(hand, null, true, this.state.currentLevel);
-      if (fallback) this.playCards(player.id, fallback.cards);
+      const fallback = findBestPlay(
+        hand, null, true, this.state.currentLevel,
+        this.getAiDecisionContext(this.state.currentPlayerIndex),
+      );
+      if (fallback) {
+        this.playCards(player.id, fallback.cards, { type: fallback.type, rank: fallback.rank });
+      }
       else this.handlePass(player.id);
     } else {
       this.handlePass(player.id);

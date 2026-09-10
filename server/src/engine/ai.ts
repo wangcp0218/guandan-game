@@ -1,13 +1,13 @@
 import { AiModelSelection, Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
-import { effectiveRank, sortCards, isJoker } from './card';
+import { effectiveRank, isJoker } from './card';
 import {
-  identifyPattern, isBomb, isKingBomb, isFlushStraight,
-  isStraight, isConsecutivePair, isPlane,
-  isTriplePair, isWildCard,
+  isWildCard,
 } from './patterns';
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext } from './llmAi';
+
+const MAX_LLM_CANDIDATES = 160;
 
 function getRankCounts(hand: Card[]): Map<number, Card[]> {
   const map = new Map<number, Card[]>();
@@ -23,157 +23,186 @@ function generateSingles(hand: Card[]): Card[][] {
   return hand.map(c => [c]);
 }
 
-function generatePairs(rankCounts: Map<number, Card[]>): Card[][] {
-  const result: Card[][] = [];
-  for (const [rank, cards] of rankCounts) {
-    if (cards.length >= 2) {
-      result.push(cards.slice(0, 2));
+function combinations<T>(items: T[], size: number): T[][] {
+  if (size === 0) return [[]];
+  if (size < 0 || size > items.length) return [];
+  const result: T[][] = [];
+  const visit = (start: number, selected: T[]) => {
+    if (selected.length === size) {
+      result.push([...selected]);
+      return;
     }
-  }
+    for (let index = start; index <= items.length - (size - selected.length); index++) {
+      selected.push(items[index]);
+      visit(index + 1, selected);
+      selected.pop();
+    }
+  };
+  visit(0, []);
   return result;
 }
 
-function generateTriples(rankCounts: Map<number, Card[]>): Card[][] {
-  const result: Card[][] = [];
-  for (const [rank, cards] of rankCounts) {
-    if (cards.length >= 3) {
-      result.push(cards.slice(0, 3));
-    }
-  }
-  return result;
-}
-
-function generateTriplePairs(rankCounts: Map<number, Card[]>, hand: Card[]): Card[][] {
-  const result: Card[][] = [];
-  const triples = Array.from(rankCounts.entries()).filter(([, cs]) => cs.length >= 3);
-  const pairs = Array.from(rankCounts.entries()).filter(([, cs]) => cs.length >= 2);
-
-  for (const [tRank, tCards] of triples) {
-    for (const [pRank, pCards] of pairs) {
-      if (tRank !== pRank) {
-        result.push([...tCards.slice(0, 3), ...pCards.slice(0, 2)]);
-      } else if (tCards.length >= 5) {
-        result.push([...tCards.slice(0, 3), ...tCards.slice(3, 5)]);
-      }
-    }
-  }
-  return result;
-}
-
-function buildRankRuns(minLength: number): Rank[][] {
-  const runs: Rank[][] = [];
-  for (let start = 1; start <= Rank.Ace - minLength + 1; start++) {
-    for (let length = minLength; start + length - 1 <= Rank.Ace; length++) {
-      runs.push(Array.from({ length }, (_, index) => {
-        const value = start + index;
-        return value === 1 ? Rank.Ace : value as Rank;
-      }));
-    }
+function rankRuns(length: 2 | 3 | 5): Rank[][] {
+  const runs: Rank[][] = [[
+    Rank.Ace,
+    ...Array.from({ length: length - 1 }, (_, index) => (Rank.Two + index) as Rank),
+  ]];
+  for (let start = Rank.Two; start + length - 1 <= Rank.Ace; start++) {
+    runs.push(Array.from({ length }, (_, index) => (start + index) as Rank));
   }
   return runs;
 }
 
-function generateStraights(hand: Card[]): Card[][] {
-  const result: Card[][] = [];
-  const rankCounts = getRankCounts(hand);
-  for (const run of buildRankRuns(5)) {
-    if (run.every(rank => (rankCounts.get(rank)?.length || 0) > 0)) {
-      result.push(run.map(rank => rankCounts.get(rank)![0]));
-    }
-  }
-  return result;
+interface TargetGroup {
+  rank: Rank;
+  count: number;
+  suit?: Suit;
 }
 
-function generateConsecutivePairs(rankCounts: Map<number, Card[]>): Card[][] {
-  const result: Card[][] = [];
-  for (const run of buildRankRuns(3).filter(candidate => candidate.length === 3)) {
-    if (run.every(rank => (rankCounts.get(rank)?.length || 0) >= 2)) {
-      result.push(run.flatMap(rank => rankCounts.get(rank)!.slice(0, 2)));
+/**
+ * Enumerate physical ways to fill fixed rank groups. 逢人配 may replace a
+ * missing ordinary card, including one which is otherwise available; keeping
+ * those alternatives lets the scorer choose the least damaging decomposition.
+ */
+function generateGroupedPatterns(
+  regulars: Card[],
+  wilds: Card[],
+  groups: TargetGroup[],
+  type: PatternType,
+  patternRank: Rank,
+  add: (pattern: CardPattern) => void,
+) {
+  const visit = (
+    groupIndex: number,
+    cards: Card[],
+    substitutionTargets: Array<{ rank: Rank; suit: Suit }>,
+  ) => {
+    if (groupIndex === groups.length) {
+      for (const selectedWilds of combinations(wilds, substitutionTargets.length)) {
+        add({
+          type,
+          rank: patternRank,
+          length: cards.length + selectedWilds.length,
+          cards: [...cards, ...selectedWilds],
+          substitutions: selectedWilds.map((card, index) => ({
+            ...card,
+            ...substitutionTargets[index],
+          })),
+        });
+      }
+      return;
     }
-  }
-  return result;
-}
-
-function generatePlanes(rankCounts: Map<number, Card[]>): Card[][] {
-  const result: Card[][] = [];
-  for (const run of buildRankRuns(2).filter(run => run.length === 2)) {
-    if (run.every(rank => (rankCounts.get(rank)?.length || 0) >= 3)) {
-      result.push(run.flatMap(rank => rankCounts.get(rank)!.slice(0, 3)));
-    }
-  }
-  return result;
-}
-
-
-function generateBombs(rankCounts: Map<number, Card[]>): Card[][] {
-  const result: Card[][] = [];
-  for (const [rank, cards] of rankCounts) {
-    if (cards.length >= 4) {
-      for (let n = 4; n <= cards.length; n++) {
-        result.push(cards.slice(0, n));
+    const group = groups[groupIndex];
+    const candidates = regulars.filter(card =>
+      card.rank === group.rank && (group.suit === undefined || card.suit === group.suit)
+    );
+    const minimumNatural = group.rank > Rank.Ace
+      ? group.count
+      : Math.max(0, group.count - (wilds.length - substitutionTargets.length));
+    const maximumNatural = Math.min(group.count, candidates.length);
+    for (let naturalCount = minimumNatural; naturalCount <= maximumNatural; naturalCount++) {
+      const missing = group.count - naturalCount;
+      if (substitutionTargets.length + missing > wilds.length) continue;
+      for (const selected of combinations(candidates, naturalCount)) {
+        const resolvedSuit = group.suit ?? Suit.Spade;
+        visit(
+          groupIndex + 1,
+          [...cards, ...selected],
+          [...substitutionTargets, ...Array.from({ length: missing }, () => ({
+            rank: group.rank,
+            suit: resolvedSuit,
+          }))],
+        );
       }
     }
-  }
-
-  const allCards = Array.from(rankCounts.values()).flat();
-  const jokers = allCards.filter(c => isJoker(c));
-  if (jokers.length >= 4) {
-    for (let n = 4; n <= jokers.length; n += 2) {
-      result.push(jokers.slice(0, n));
-    }
-    result.push(jokers.slice(0, 4));
-  }
-  return result;
+  };
+  visit(0, [], []);
 }
 
 export function generateLegalPlays(
   hand: Card[],
   currentLevel: number
 ): CardPattern[] {
-  const rankCounts = getRankCounts(hand);
-  const allCombos: Card[][] = [];
   const wilds = hand.filter(card => isWildCard(card, currentLevel));
-  for (const [rank, group] of rankCounts) {
-    if (rank > Rank.Ace || rank === currentLevel) continue;
-    for (let count = 1; count <= wilds.length; count++) {
-      for (let natural = 2; natural <= group.length; natural++) {
-        if (natural + count >= 4) allCombos.push([...group.slice(0, natural), ...wilds.slice(0, count)]);
-      }
-    }
-  }
-
-  allCombos.push(...generateSingles(hand));
-  allCombos.push(...generatePairs(rankCounts));
-  allCombos.push(...generateTriples(rankCounts));
-  allCombos.push(...generateTriplePairs(rankCounts, hand));
-  allCombos.push(...generateConsecutivePairs(rankCounts));
-  allCombos.push(...generatePlanes(rankCounts));
-  allCombos.push(...generateBombs(rankCounts));
-  allCombos.push(...generateStraights(hand));
-
-  const extra: Card[][] = [];
-  for (const combo of allCombos) {
-    if (isKingBomb(combo)) {
-      extra.push(combo);
-    }
-    if (isFlushStraight(combo)) {
-      extra.push(combo);
-    }
-  }
-  allCombos.push(...extra);
-
+  const regulars = hand.filter(card => !isWildCard(card, currentLevel));
   const patterns: CardPattern[] = [];
   const seen = new Set<string>();
 
-  for (const combo of allCombos) {
-    const pattern = identifyPattern(combo, currentLevel);
-    if (pattern) {
-      const key = `${pattern.type}_${combo.map(c => c.id).sort().join(',')}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        patterns.push(pattern);
+  const add = (pattern: CardPattern) => {
+    const ids = pattern.cards.map(card => card.id).sort((a, b) => a - b);
+    const key = `${pattern.type}:${pattern.rank}:${ids.join(',')}`;
+    if (new Set(ids).size !== ids.length || seen.has(key)) return;
+    seen.add(key);
+    patterns.push(pattern);
+  };
+
+  for (const cards of generateSingles(hand)) {
+    add({ type: PatternType.Single, rank: cards[0].rank, length: 1, cards });
+  }
+
+  // Same-rank groups. Pairs may be made from jokers; larger groups may not.
+  for (let rank = Rank.Two; rank <= Rank.BigJoker; rank++) {
+    generateGroupedPatterns(regulars, wilds, [{ rank, count: 2 }], PatternType.Pair, rank, add);
+    if (rank <= Rank.Ace) {
+      generateGroupedPatterns(regulars, wilds, [{ rank, count: 3 }], PatternType.Triple, rank, add);
+      for (let size = 4; size <= 10; size++) {
+        generateGroupedPatterns(
+          regulars, wilds, [{ rank, count: size }],
+          `bomb${size}` as PatternType, rank, add,
+        );
       }
     }
+  }
+
+  for (let tripleRank = Rank.Two; tripleRank <= Rank.Ace; tripleRank++) {
+    for (let pairRank = Rank.Two; pairRank <= Rank.BigJoker; pairRank++) {
+      if (tripleRank === pairRank) continue;
+      generateGroupedPatterns(regulars, wilds, [
+        { rank: tripleRank, count: 3 },
+        { rank: pairRank, count: 2 },
+      ], PatternType.TriplePair, tripleRank, add);
+    }
+  }
+
+  for (const run of rankRuns(5)) {
+    const groups = run.map(rank => ({ rank, count: 1 }));
+    generateGroupedPatterns(regulars, wilds, groups, PatternType.Straight, run[run.length - 1], pattern => {
+      const substitutions = pattern.substitutions || [];
+      const resolved = pattern.cards.map(card => substitutions.find(item => item.id === card.id) || card);
+      if (resolved.every(card => card.suit === resolved[0].suit)) {
+        // A wildcard can deliberately take another suit to declare an ordinary
+        // straight. Natural straight flushes cannot be downgraded this way.
+        if (substitutions.length === 0) return;
+        pattern.substitutions = substitutions.map((card, index) => index === 0
+          ? { ...card, suit: resolved[0].suit === Suit.Spade ? Suit.Heart : Suit.Spade }
+          : card);
+      }
+      add(pattern);
+    });
+    for (const suit of [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond]) {
+      generateGroupedPatterns(
+        regulars, wilds, run.map(rank => ({ rank, count: 1, suit })),
+        PatternType.FlushStraight, run[run.length - 1], add,
+      );
+    }
+  }
+
+  for (const run of rankRuns(3)) {
+    generateGroupedPatterns(
+      regulars, wilds, run.map(rank => ({ rank, count: 2 })),
+      PatternType.ConsecutivePair, run[run.length - 1], add,
+    );
+  }
+  for (const run of rankRuns(2)) {
+    generateGroupedPatterns(
+      regulars, wilds, run.map(rank => ({ rank, count: 3 })),
+      PatternType.Plane, run[run.length - 1], add,
+    );
+  }
+
+  const jokers = hand.filter(isJoker);
+  if (jokers.length === 4) {
+    add({ type: PatternType.KingBomb, rank: Rank.BigJoker, length: 4, cards: jokers });
   }
 
   return patterns;
@@ -258,79 +287,96 @@ function applyStrategicGuards(
   return guarded;
 }
 
-function chooseGuardedFreePlayFallback(
-  plays: CardPattern[],
+/** Base7-inspired value: prefer shedding groups while preserving controls and structures. */
+function scorePlay(
+  play: CardPattern,
   hand: Card[],
   currentLevel: number,
-): CardPattern | null {
+  isFreePlay: boolean,
+  context?: AiDecisionContext,
+  protectedCardIds: ReadonlySet<number> = new Set(),
+): number {
+  if (play.cards.length === hand.length) return 1_000_000;
   const handCounts = getRankCounts(hand);
-  const doesNotBreakBomb = (play: CardPattern) => {
-    const playedCounts = getRankCounts(play.cards);
-    return Array.from(playedCounts.entries()).every(([rank, cards]) => {
-      const heldCount = handCounts.get(rank)?.length || 0;
-      return heldCount < 4 || cards.length === heldCount;
-    });
-  };
-  const combinations = plays.filter(play =>
-    play.cards.length > 1 && !isBombPattern(play) && doesNotBreakBomb(play)
-  );
-  if (combinations.length > 0) {
-    return combinations.reduce((best, play) => {
-      if (play.cards.length !== best.cards.length) {
-        return play.cards.length > best.cards.length ? play : best;
-      }
-      return effectiveRank(play.rank, currentLevel) < effectiveRank(best.rank, currentLevel)
-        ? play
-        : best;
-    });
+  const playedCounts = getRankCounts(play.cards);
+  const lastPlayer = context?.players.find(player => player.seatIndex === context.lastPlayPlayerIndex);
+  const partnerLed = lastPlayer?.relation === 'partner';
+  const opponentLed = lastPlayer?.relation === 'opponent';
+  const urgentOpponent = context?.players.some(player =>
+    player.relation === 'opponent' && player.finishRank === null && player.cardCount <= 5
+  ) || false;
+
+  let score = play.cards.length * 120 - effectiveRank(play.rank, currentLevel) * 2;
+  if (play.cards.length > 1) score += 100;
+  if ([PatternType.Straight, PatternType.TriplePair, PatternType.ConsecutivePair, PatternType.Plane].includes(play.type)) {
+    score += 100;
   }
 
-  const singles = plays.filter(play =>
-    play.type === PatternType.Single && !isJoker(play.cards[0])
-  );
-  if (singles.length > 0) {
-    return singles.reduce((best, play) =>
-      effectiveRank(play.cards[0].rank, currentLevel) < effectiveRank(best.cards[0].rank, currentLevel)
-        ? play
-        : best
-    );
+  // A card which belongs to a bomb/king bomb/flush straight or is a wildcard
+  // has high option value. Penalise partial destruction, not playing it whole.
+  for (const [rank, selected] of playedCounts) {
+    const held = handCounts.get(rank)?.length || 0;
+    if (held >= 4 && selected.length < held) score -= 650;
+    else if (held === 3 && selected.length < held) score -= 80;
+    else if (held === 2 && selected.length === 1) score -= 45;
+  }
+  if (!isBombPattern(play)) {
+    score -= play.cards.filter(card => isWildCard(card, currentLevel)).length * 260;
+    score -= play.cards.filter(isJoker).length * 100;
+    score -= play.cards.filter(card => protectedCardIds.has(card.id)).length * 90;
   }
 
-  const nonBombs = plays.filter(play => !isBombPattern(play));
-  if (nonBombs.length > 0) {
-    return nonBombs.reduce((best, play) => play.cards.length > best.cards.length ? play : best);
+  if (isBombPattern(play)) {
+    // Taking the trick with a bomb has the same immediate benefit regardless
+    // of size. Cancel the generic shedding bonus and charge for bomb strength;
+    // whole-hand finishes still take priority above. Keep leading costs finite
+    // so intact bombs beat dismantling the only remaining structures.
+    const tier = play.type === PatternType.KingBomb ? 8
+      : play.type === PatternType.FlushStraight ? 1.5 : play.cards.length - 4;
+    score -= play.cards.length * 120 + 100 + tier * 140;
+    if (partnerLed) score -= 20_000;
+    if (opponentLed && lastPlayer && lastPlayer.cardCount <= 14) score += 650;
+    if (urgentOpponent) score += 600;
   }
-  return plays[0] || null;
+
+  if (!isFreePlay && !isBombPattern(play)) score += 350;
+  if (partnerLed) score -= 15_000;
+
+  if (isFreePlay && context) {
+    const partner = context.players.find(player => player.relation === 'partner' && player.finishRank === null);
+    const opponents = context.players.filter(player => player.relation === 'opponent' && player.finishRank === null);
+    if (partner?.cardCount === play.cards.length) score += 900;
+    if (opponents.some(player => player.cardCount === play.cards.length)) score -= 350;
+  }
+
+  // Prefer the weakest physical realization when declarations are equivalent.
+  score -= play.cards.reduce((sum, card) => sum + effectiveRank(card.rank, currentLevel), 0) / 20;
+  return score;
 }
 
-function orderFreePlayCandidates(
+function orderCandidates(
   plays: CardPattern[],
   hand: Card[],
   currentLevel: number,
+  isFreePlay: boolean,
+  context?: AiDecisionContext,
 ): CardPattern[] {
-  const handCounts = getRankCounts(hand);
-  const score = (play: CardPattern) => {
-    if (play.cards.length === hand.length) return 100_000;
-    if (isBombPattern(play)) return 0;
-    const playedCounts = getRankCounts(play.cards);
-    const breaksBomb = Array.from(playedCounts.entries()).some(([rank, cards]) => {
-      const heldCount = handCounts.get(rank)?.length || 0;
-      return heldCount >= 4 && cards.length < heldCount;
-    });
-    if (play.cards.length > 1) {
-      return (breaksBomb ? 2_000 : 10_000) + play.cards.length * 100
-        - effectiveRank(play.rank, currentLevel);
-    }
-    return 1_000 - effectiveRank(play.cards[0].rank, currentLevel);
-  };
-  return [...plays].sort((a, b) => score(b) - score(a));
+  const protectedCardIds = new Set(plays
+    .filter(play => play.type === PatternType.FlushStraight || play.type === PatternType.KingBomb)
+    .flatMap(play => play.cards.map(card => card.id)));
+  const scores = new Map(plays.map(play => [
+    play,
+    scorePlay(play, hand, currentLevel, isFreePlay, context, protectedCardIds),
+  ]));
+  return [...plays].sort((a, b) => scores.get(b)! - scores.get(a)!);
 }
 
 export function findBestPlay(
   hand: Card[],
   lastPattern: CardPattern | null,
   isFreePlay: boolean,
-  currentLevel: number
+  currentLevel: number,
+  context?: AiDecisionContext,
 ): CardPattern | null {
   let legalPlays = generateLegalPlays(hand, currentLevel);
 
@@ -339,30 +385,16 @@ export function findBestPlay(
   }
 
   if (legalPlays.length === 0) return null;
-
-  if (isFreePlay || !lastPattern) {
-    return chooseGuardedFreePlayFallback(legalPlays, hand, currentLevel);
+  legalPlays = dedupeStrategicPlays(legalPlays);
+  const ordered = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context);
+  if (!isFreePlay && context) {
+    const lastPlayer = context.players.find(player => player.seatIndex === context.lastPlayPlayerIndex);
+    const passScore = lastPlayer?.relation === 'partner'
+      ? 100_000
+      : lastPlayer?.cardCount !== undefined && lastPlayer.cardCount <= 3 ? -10_000 : 0;
+    if (scorePlay(ordered[0], hand, currentLevel, false, context) <= passScore) return null;
   }
-
-  if (!isFreePlay && lastPattern) {
-    const sameType = legalPlays.filter(p =>
-      p.type === lastPattern.type && p.length === lastPattern.length && !isBombPattern(p)
-    );
-    if (sameType.length > 0) {
-      return sameType.reduce((a, b) => a.rank < b.rank ? a : b);
-    }
-
-    const smallBombs = legalPlays.filter(p => isBombPattern(p) && p.type !== PatternType.KingBomb);
-    if (smallBombs.length > 0) {
-      return smallBombs.reduce((a, b) => a.rank < b.rank ? a : b);
-    }
-  }
-
-  return legalPlays.reduce((a, b) => {
-    if (isBombPattern(a) && !isBombPattern(b)) return a;
-    if (!isBombPattern(a) && isBombPattern(b)) return b;
-    return a.cards.length < b.cards.length ? a : b;
-  });
+  return ordered[0] || null;
 }
 
 export function findBestTribute(hand: Card[], currentLevel: number): Card {
@@ -396,22 +428,24 @@ export async function findSmartPlay(
   context?: AiDecisionContext,
   selection?: AiModelSelection,
 ): Promise<CardPattern | null> {
-  const ruleResult = findBestPlay(hand, lastPattern, isFreePlay, currentLevel);
+  const ruleResult = findBestPlay(hand, lastPattern, isFreePlay, currentLevel, context);
   let legalPlays = generateLegalPlays(hand, currentLevel);
   if (!isFreePlay && lastPattern) {
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
   legalPlays = applyStrategicGuards(legalPlays, hand, currentLevel, isFreePlay, context);
-  if (isFreePlay) {
-    legalPlays = orderFreePlayCandidates(legalPlays, hand, currentLevel);
-  }
+  // The hint system keeps the exhaustive list. The LLM receives the strongest
+  // Base7-ranked slice so a combinatorial hand cannot overflow its context.
+  legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context)
+    .slice(0, MAX_LLM_CANDIDATES);
 
   const guardedRuleResult = ruleResult && legalPlays.some(play =>
     strategicPlayKey(play) === strategicPlayKey(ruleResult)
   ) ? ruleResult : null;
   const fallbackResult = guardedRuleResult
-    || (isFreePlay ? chooseGuardedFreePlayFallback(legalPlays, hand, currentLevel) : null);
+    || ruleResult
+    || (isFreePlay ? legalPlays[0] || null : null);
 
   try {
     const llmResult = await llmFindBestPlay(
