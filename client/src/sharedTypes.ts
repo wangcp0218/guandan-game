@@ -156,6 +156,7 @@ export interface ReturnTributeRequest {
 }
 
 export interface RoundResult {
+  replay?: string[];
   matchWinnerTeam?: number;
   endReason?: string;
   levelPenalty?: number;

@@ -28,6 +28,7 @@ export class GameRoom {
   currentLevel: number = Rank.Two;
   turnTimer: ReturnType<typeof setTimeout> | null = null;
   recentActions: AiRecentAction[] = [];
+  private roundReplay: string[] = [];
   roundNumber: number = 0;
   teamLevels: [Rank, Rank] = [Rank.Two, Rank.Two];
   leadingTeam: 0 | 1 = 0;
@@ -140,6 +141,7 @@ export class GameRoom {
     this.hands.clear();
     this.rankings = [];
     this.recentActions = [];
+    this.roundReplay = [];
 
     this.reportedCounts.clear();
     if (this.turnTimer) {
@@ -243,6 +245,7 @@ export class GameRoom {
     if (!this.matchStartedAt) this.matchStartedAt = Date.now();
     this.reportedCounts.clear();
     const deck = shuffleDeck(createDeck());
+    this.roundReplay = [];
     const dealt = dealCards(deck, MAX_PLAYERS);
     this.hands.clear();
     this.rankings = [];
@@ -340,6 +343,15 @@ export class GameRoom {
 
   private startPlayingPhase(leadPlayerIndex: number = 0) {
     if (!this.state) return;
+    this.roundReplay = [
+      `本局级牌：${this.replayRank(this.currentLevel)}`,
+      '起始手牌（进贡、还贡完成后）',
+      ...this.players.map(player => `${player.name}：${sortCards(
+        this.hands.get(player.id) || [], this.currentLevel,
+      ).map(card => this.replayCard(card)).join(' ')}`),
+      '',
+      '出牌记录',
+    ];
     this.state.phase = GamePhase.Playing;
     this.state.currentPlayerIndex = leadPlayerIndex;
     this.broadcastState();
@@ -721,8 +733,47 @@ export class GameRoom {
     this.state.passCount = 0;
   }
 
+  private replayRank(rank: number): string {
+    const labels: Record<number, string> = {
+      [Rank.Jack]: 'J', [Rank.Queen]: 'Q', [Rank.King]: 'K', [Rank.Ace]: 'A',
+      [Rank.SmallJoker]: '小王', [Rank.BigJoker]: '大王',
+    };
+    return labels[rank] || String(rank);
+  }
+
+  private replayCard(card: Card): string {
+    if (isJoker(card)) return this.replayRank(card.rank);
+    const suits: Record<Suit, string> = {
+      [Suit.Spade]: '♠️', [Suit.Heart]: '♥️', [Suit.Club]: '♣️', [Suit.Diamond]: '♦️',
+    };
+    const level = card.rank === this.currentLevel
+      ? card.suit === Suit.Heart ? '（级牌·逢人配）' : '（级牌）'
+      : '';
+    return `${suits[card.suit]}${this.replayRank(card.rank)}${level}`;
+  }
+
   private recordAiAction(action: AiRecentAction) {
     this.recentActions = [...this.recentActions.slice(-11), action];
+    const playerName = this.players[action.seatIndex]?.name || '未知玩家';
+    if (action.action === 'pass') {
+      this.roundReplay.push(`${playerName}：不出`);
+      return;
+    }
+    if (!action.pattern) return;
+    const pattern = action.pattern;
+    const resolvedRank = (card: Card) =>
+      pattern.substitutions?.find(item => item.id === card.id)?.rank ?? card.rank;
+    // Show the triple first in a full house (555KK), sequences from low to high.
+    const ordered = [...pattern.cards].sort((a, b) => pattern.type === PatternType.TriplePair
+      ? Number(resolvedRank(b) === pattern.rank) - Number(resolvedRank(a) === pattern.rank)
+        || resolvedRank(a) - resolvedRank(b)
+      : resolvedRank(a) - resolvedRank(b));
+    const text = ordered.map(card => {
+      const substitution = pattern.substitutions?.find(item => item.id === card.id);
+      return this.replayCard(card) + (substitution
+        ? `→${this.replayCard(substitution)}` : '');
+    }).join(' ');
+    this.roundReplay.push(`${playerName}：${text}`);
   }
 
   private getAiDecisionContext(playerIdx: number): AiDecisionContext {
@@ -765,6 +816,7 @@ export class GameRoom {
     const delta = getLevelDelta(partnerRank);
 
     const result: RoundResult = {
+      replay: [...this.roundReplay],
       rankings: this.rankings,
       winnerTeam,
       loserTeam: winnerTeam === 0 ? 1 : 0,
