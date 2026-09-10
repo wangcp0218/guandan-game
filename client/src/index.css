@@ -415,6 +415,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .seat-action-player {
+  display: none;
   flex: 0 0 auto;
   max-width: 72px;
   margin-right: 5px;
@@ -998,6 +999,7 @@ button:disabled { cursor: default; }
     padding-left: 48px;
   }
   .seat-action-player {
+    display: block;
     position: absolute;
     top: 50%;
     left: 6px;
@@ -1032,6 +1034,24 @@ button:disabled { cursor: default; }
   .is-spectator .spectator-hand--right { top: auto; bottom: 8%; right: 2%; }
   .spectator-hand-cards { overflow-x: auto; justify-content: flex-start; pointer-events: auto; }
   .spectator-hand-card { flex-shrink: 0; }
+}
+
+/* Desktop table refinements: keep the personal play close to the controls and
+   make a large hand easier to scan without changing the portrait layout. */
+@media (min-width: 901px) {
+  .game-center-play-area {
+    top: 52%;
+  }
+
+  .hand-cards {
+    --hand-card-width: calc(var(--game-card-width) * .8);
+    --hand-card-height: calc(var(--game-card-height) * .8);
+    --hand-card-rank-size: calc(var(--game-card-rank-size) * .8);
+    --hand-card-suit-size: calc(var(--game-card-suit-size) * .8);
+    --hand-card-center-size: calc(var(--game-card-center-size) * .8);
+    --hand-stack-rise: clamp(29px, 2.96vw, 51px);
+    --hand-column-step: clamp(43px, 4.48vw, 86px);
+  }
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
