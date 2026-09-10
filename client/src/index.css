@@ -45,7 +45,7 @@ body {
 }
 
 .game-room > div {
-  border: clamp(7px, .85vw, 14px) solid #4c2c1b;
+  border: 0;
   border-radius: clamp(16px, 2vw, 28px);
   background:
     radial-gradient(ellipse at 50% 46%, rgba(29, 126, 83, .4), transparent 58%),
@@ -1041,6 +1041,14 @@ button:disabled { cursor: default; }
 @media (min-width: 901px) {
   .game-center-play-area {
     top: 52%;
+  }
+
+  .seat-action-cards {
+    --game-card-width: calc(clamp(72px, 4.7vw, 96px) * .8);
+    --game-card-height: calc(clamp(104px, 6.75vw, 138px) * .8);
+    --game-card-rank-size: calc(clamp(28px, 1.85vw, 38px) * .8);
+    --game-card-suit-size: calc(clamp(21px, 1.4vw, 29px) * .8);
+    --game-card-center-size: calc(clamp(44px, 3vw, 62px) * .8);
   }
 
   .hand-cards {
