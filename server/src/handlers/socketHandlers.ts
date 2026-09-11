@@ -325,14 +325,18 @@ function handleLeaveRoom(socket: AuthSocket, io: Server) {
       socket.currentRoomId = undefined;
       return;
     }
-    room.removePlayer(socket.userId);
+    if (!room.removePlayer(socket.userId, socket)) {
+      socket.leave(socket.currentRoomId);
+      socket.currentRoomId = undefined;
+      return;
+    }
     socket.leave(socket.currentRoomId);
     io.to(socket.currentRoomId).emit('player_left', {
       playerId: socket.userId,
       playerName: socket.username,
     });
 
-    if (room.getHumanPlayerCount() === 0) {
+    if (room.getConnectedHumanCount() === 0) {
       for (const spectatorSocket of room.removeAllSpectators()) {
         spectatorSocket.leave(socket.currentRoomId);
         spectatorSocket.currentRoomId = undefined;

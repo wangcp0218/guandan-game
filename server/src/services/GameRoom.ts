@@ -78,8 +78,16 @@ export class GameRoom {
     return seatIndex;
   }
 
-  removePlayer(id: string) {
+  removePlayer(id: string, expectedSocket?: any): boolean {
+    const player = this.players.find(p => p.id === id);
+    // An old connection may disconnect after the player has reconnected.
+    if (!player || (expectedSocket && player.socket !== expectedSocket)) return false;
     const isWaiting = !this.state || this.state.phase === GamePhase.Waiting;
+    if (!isWaiting) {
+      // Seats, teams and finish rankings must remain stable throughout a match.
+      player.socket = null;
+      return true;
+    }
     this.players = this.players.filter(p => p.id !== id);
     if (isWaiting) {
       const seatIndex = this.seatAssignments.indexOf(id);
@@ -89,6 +97,11 @@ export class GameRoom {
       }
       this.syncWaitingState();
     }
+    return true;
+  }
+
+  getConnectedHumanCount(): number {
+    return this.players.filter(player => !player.isAI && player.socket).length;
   }
 
   getPlayerCount(): number {
@@ -581,8 +594,6 @@ export class GameRoom {
       return { success: false, error: '不是你的回合' };
     }
 
-    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
-
     const hand = this.hands.get(playerId) || [];
     if (cards.length === 0) {
       return this.handlePass(playerId);
@@ -611,6 +622,7 @@ export class GameRoom {
       }
     }
 
+    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
     for (const c of cards) {
       const idx = hand.findIndex(h => h.id === c.id);
       if (idx >= 0) hand.splice(idx, 1);
@@ -669,11 +681,11 @@ export class GameRoom {
   private handlePass(playerId: string): { success: boolean; error?: string } {
     if (!this.state) return { success: false, error: '游戏未在进行中' };
 
-    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
-
     if (!this.state.lastPlay) {
       return { success: false, error: '首轮必须出牌' };
     }
+
+    if (this.turnTimer) { clearTimeout(this.turnTimer); this.turnTimer = null; }
 
     this.state.passCount++;
     const playerIdx = this.players.findIndex(player => player.id === playerId);
@@ -702,11 +714,14 @@ export class GameRoom {
 
   private advanceTurn() {
     if (!this.state) return;
-    let next = (this.state.currentPlayerIndex + 1) % MAX_PLAYERS;
-    while (this.rankings.some(r => r.playerId === this.players[next].id)) {
-      next = (next + 1) % MAX_PLAYERS;
+    for (let offset = 1; offset <= MAX_PLAYERS; offset++) {
+      const next = (this.state.currentPlayerIndex + offset) % MAX_PLAYERS;
+      const player = this.players[next];
+      if (player && !this.rankings.some(r => r.playerId === player.id)) {
+        this.state.currentPlayerIndex = next;
+        return;
+      }
     }
-    this.state.currentPlayerIndex = next;
   }
 
   private getActivePlayerCount(): number {

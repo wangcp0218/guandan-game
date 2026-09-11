@@ -1287,13 +1287,14 @@ button:disabled { cursor: default; }
     overflow-y: hidden;
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
-    padding: 4px 0 0;
+    padding: 4px 8px 0;
+    scroll-padding-inline: 8px;
   }
   .hand-cards {
     width: max-content;
     min-width: 100%;
     height: 100% !important;
-    padding: 0 2px;
+    padding: 0;
     --hand-card-width: 47px;
     --hand-card-height: 68px;
     --hand-card-rank-size: 24px;
@@ -1303,6 +1304,7 @@ button:disabled { cursor: default; }
     --hand-column-step: 53px;
     --hand-column-min: 50px;
     justify-content: flex-start;
+    justify-content: safe center;
     align-items: flex-end;
   }
   .hand-card-group { flex-shrink: 0; }
@@ -1388,7 +1390,10 @@ button:disabled { cursor: default; }
    stays centred, while a long hand remains reachable through horizontal scroll. */
 @media (max-width: 600px) and (orientation: portrait) {
   .game-bottom-area { z-index: 30; }
-  .hand-cards { justify-content: center; }
+  .hand-cards {
+    justify-content: flex-start;
+    justify-content: safe center;
+  }
 }
 
 /* The waiting-seat panel is a dialog-like surface, not a play row. Keep it
