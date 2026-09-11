@@ -20,7 +20,7 @@ export default function PlayerInfoComponent({ player, position, isCurrent, isMe,
   const bgColor = isMe ? TEAM_COLORS.mine : isPartner ? TEAM_COLORS.partner : TEAM_COLORS.opponent;
 
   return (
-    <div className="player-info" style={{
+    <div className={`player-info${isCurrent ? ' is-current' : ''}`} style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',

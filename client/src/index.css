@@ -45,7 +45,7 @@ body {
 }
 
 .game-room > div {
-  border: 0;
+  border: clamp(7px, .85vw, 14px) solid #4c2c1b;
   border-radius: clamp(16px, 2vw, 28px);
   background:
     radial-gradient(ellipse at 50% 46%, rgba(29, 126, 83, .4), transparent 58%),
@@ -415,7 +415,6 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .seat-action-player {
-  display: none;
   flex: 0 0 auto;
   max-width: 72px;
   margin-right: 5px;
@@ -696,6 +695,8 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 
 .game-top-actions { display: contents; }
 
+.mobile-action-label { display: none; }
+
 .room-exit-actions {
   position: absolute;
   top: 16px;
@@ -759,13 +760,6 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 .game-turn-error {
   color: #ff7b7b;
   font-size: 11px;
-  white-space: nowrap;
-}
-
-.desktop-action-countdown {
-  color: #ffe487;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -912,7 +906,6 @@ button:disabled { cursor: default; }
 .game-room [style*="position: fixed"] > div { max-width: calc(100vw - 24px); max-height: 90dvh; overflow: auto; }
 
 @media (max-width: 900px) {
-  .desktop-action-countdown { display: none; }
   input, select { font-size: 16px !important; }
   .game-room > div { border-width: 4px; border-radius: 14px; }
   .duel-scoreboard { top: 6px; left: 6px; min-width: 132px; padding: 4px; }
@@ -1007,7 +1000,6 @@ button:disabled { cursor: default; }
     padding-left: 48px;
   }
   .seat-action-player {
-    display: block;
     position: absolute;
     top: 50%;
     left: 6px;
@@ -1044,30 +1036,58 @@ button:disabled { cursor: default; }
   .spectator-hand-card { flex-shrink: 0; }
 }
 
-/* Desktop table refinements: keep the personal play close to the controls and
-   make a large hand easier to scan without changing the portrait layout. */
-@media (min-width: 901px) {
-  .game-center-play-area {
-    top: 52%;
+/* Portrait command deck: keep the header clear, move secondary actions to the
+   lower-right corner, and use the whole player card as the turn indicator. */
+@media (max-width: 600px) and (orientation: portrait) {
+  .game-room:not(.is-waiting) .duel-scoreboard {
+    top: 50%;
+    left: 50%;
+    z-index: 1;
+    transform: translate(-50%, -50%);
+    opacity: .72;
   }
 
-  .seat-action-cards {
-    --game-card-width: calc(clamp(72px, 4.7vw, 96px) * .8);
-    --game-card-height: calc(clamp(104px, 6.75vw, 138px) * .8);
-    --game-card-rank-size: calc(clamp(28px, 1.85vw, 38px) * .8);
-    --game-card-suit-size: calc(clamp(21px, 1.4vw, 29px) * .8);
-    --game-card-center-size: calc(clamp(44px, 3vw, 62px) * .8);
+  .game-top-actions {
+    top: auto;
+    right: 5px;
+    bottom: max(5px, env(safe-area-inset-bottom));
+    align-items: center;
+    max-width: calc(100% - 88px);
   }
+  .game-turn-status { display: none; }
+  .game-turn-status.has-error,
+  .game-turn-status.is-tribute {
+    position: absolute;
+    right: 0;
+    bottom: 40px;
+    display: flex;
+    max-width: 220px;
+    white-space: normal;
+  }
+  .game-turn-status.has-error:not(.is-tribute) .game-turn-message { display: none; }
 
-  .hand-cards {
-    --hand-card-width: calc(var(--game-card-width) * .8);
-    --hand-card-height: calc(var(--game-card-height) * .8);
-    --hand-card-rank-size: calc(var(--game-card-rank-size) * .8);
-    --hand-card-suit-size: calc(var(--game-card-suit-size) * .8);
-    --hand-card-center-size: calc(var(--game-card-center-size) * .8);
-    --hand-stack-rise: clamp(29px, 2.96vw, 51px);
-    --hand-column-step: clamp(43px, 4.48vw, 86px);
+  .spectator-menu,
+  .room-exit-actions button {
+    min-height: 32px;
+    padding: 4px 7px;
+    font-size: 9px;
   }
+  .desktop-action-label { display: none; }
+  .mobile-action-label { display: inline; }
+
+  .game-bottom-area {
+    grid-template-rows: minmax(0, 1fr) 56px 36px;
+  }
+  .game-action-bar { grid-row: 2; }
+  .play-card-count { display: none; }
+
+  .player-info.is-current {
+    border-color: #ffd43b !important;
+    background: linear-gradient(145deg, rgba(255, 218, 62, .94), rgba(218, 157, 19, .94)) !important;
+    box-shadow: 0 0 0 2px rgba(255, 229, 106, .38), 0 4px 14px rgba(0, 0, 0, .34) !important;
+    color: #2b2105;
+  }
+  .player-info.is-current > span:last-child { color: rgba(43, 33, 5, .68) !important; }
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
@@ -1389,7 +1409,13 @@ button:disabled { cursor: default; }
 /* Keep the interactive hand above the four table-action rows.  A short hand
    stays centred, while a long hand remains reachable through horizontal scroll. */
 @media (max-width: 600px) and (orientation: portrait) {
+  .player-seat { top: 10px; }
   .game-bottom-area { z-index: 30; }
+  .game-room:not(.is-waiting) .game-bottom-area {
+    height: 34dvh;
+    grid-template-rows: minmax(0, 1fr) 56px 36px;
+  }
+  .game-action-bar { grid-row: 2; }
   .hand-cards {
     justify-content: flex-start;
     justify-content: safe center;

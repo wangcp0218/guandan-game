@@ -31,8 +31,6 @@ export default function GameRoom() {
   const [tributeNotice, setTributeNotice] = useState('');
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
   const [spectatorDialogOpen, setSpectatorDialogOpen] = useState(false);
-  const [replayOpen, setReplayOpen] = useState(false);
-  const [actionCountdown, setActionCountdown] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -49,10 +47,7 @@ export default function GameRoom() {
       setGameState(state);
       setDeclarations([]);
       setWaiting(state.phase === 'waiting');
-      if (state.phase !== 'round_end' && state.phase !== 'game_over') {
-        setRoundResult(null);
-        setReplayOpen(false);
-      }
+      if (state.phase !== 'round_end' && state.phase !== 'game_over') setRoundResult(null);
       else if (state.roundResult) setRoundResult(state.roundResult);
 
       setPlayerActions(previous => {
@@ -185,21 +180,6 @@ export default function GameRoom() {
     return () => clearInterval(loadInterval);
   }, [gameState?.roomId, myCards.length, spectatorMode]);
 
-  useEffect(() => {
-    const deadline = gameState?.actionDeadline;
-    if (!deadline || (gameState.phase !== 'playing' && gameState.phase !== 'return_tribute')) {
-      setActionCountdown(null);
-      return;
-    }
-
-    const updateCountdown = () => {
-      setActionCountdown(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
-    };
-    updateCountdown();
-    const timer = window.setInterval(updateCountdown, 250);
-    return () => window.clearInterval(timer);
-  }, [gameState?.actionDeadline, gameState?.phase]);
-
   const handlePlay = () => {
     if (selectedCardIds.size === 0) {
       handlePass();
@@ -321,13 +301,8 @@ export default function GameRoom() {
         </div>
         <div className="game-top-actions">
           {!isSpectator && gameState?.phase !== 'round_end' && (
-            <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}`}>
-              <span>{turnMessage}</span>
-              {actionCountdown !== null && (
-                <span className="desktop-action-countdown">
-                  {gameState?.phase === 'return_tribute' ? '还贡' : '出牌'}倒计时 {actionCountdown}秒
-                </span>
-              )}
+            <div className={`game-turn-status${isMyTurn ? ' is-my-turn' : ''}${gameState?.phase === 'return_tribute' ? ' is-tribute' : ''}${errorMsg ? ' has-error' : ''}`}>
+              <span className="game-turn-message">{turnMessage}</span>
               {errorMsg && <span className="game-turn-error">{errorMsg}</span>}
             </div>
           )}
@@ -339,13 +314,15 @@ export default function GameRoom() {
               className="btn-danger"
               onClick={handleLeaveRoom}
             >
-              退出房间
+              <span className="desktop-action-label">退出房间</span>
+              <span className="mobile-action-label">Exit</span>
             </button>
             <button
               className="btn-secondary"
               onClick={handleLogout}
             >
-              退出登录
+              <span className="desktop-action-label">退出登录</span>
+              <span className="mobile-action-label">Logout</span>
             </button>
           </div>
         </div>
@@ -530,13 +507,11 @@ export default function GameRoom() {
                       fontWeight: 700,
                     }}
                   >
-                    出牌 ({selectedCardIds.size}张)
+                    出牌<span className="play-card-count"> ({selectedCardIds.size}张)</span>
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={() => {
-                      getSocket()?.emit('hint', { currentCardIds: [...selectedCardIds] });
-                    }}
+                    onClick={() => { getSocket()?.emit('hint'); }}
                     disabled={!isMyTurn}
                     style={{
                       opacity: isMyTurn ? 1 : 0.3,
@@ -605,8 +580,7 @@ export default function GameRoom() {
               <p style={{ marginBottom: 8 }}>
                 排名: {roundResult.rankings.map(r => {
                   const p = gameState?.players.find(pl => pl.id === r.playerId);
-                  const tiedLast = r.rank === 4 && roundResult.rankings.filter(item => item.rank === 4).length === 2;
-                  return `${p?.name || '?'} ${tiedLast ? '双下' : `第${r.rank}名`}`;
+                  return `${p?.name || '?'} 第${r.rank}名`;
                 }).join(' | ')}
               </p>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 }}>
@@ -614,7 +588,7 @@ export default function GameRoom() {
                 {roundResult.levelPenalty ? `，触发地方规则退${roundResult.levelPenalty}级` : ''}
                 {roundResult.endReason ? `；${roundResult.endReason}` : ''}
               </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
                 <button
                   className="btn-primary"
                   onClick={() => {
@@ -633,24 +607,7 @@ export default function GameRoom() {
                 >
                   退出房间
                 </button>
-                <button
-                  className="btn-secondary"
-                  onClick={() => setReplayOpen(value => !value)}
-                  aria-expanded={replayOpen}
-                  style={{ padding: '10px 24px', fontSize: 15 }}
-                >
-                  {replayOpen ? '收起复盘' : '复盘'}
-                </button>
               </div>
-              {replayOpen && (
-                <div style={{ marginTop: 16, maxHeight: '40dvh', overflowY: 'auto',
-                  textAlign: 'left', fontSize: 14, lineHeight: 1.8,
-                  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                  {roundResult.replay?.length
-                    ? roundResult.replay.join('\n')
-                    : '本局暂无复盘记录'}
-                </div>
-              )}
             </div>
           </div>
         )}
