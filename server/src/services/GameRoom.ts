@@ -12,8 +12,9 @@ import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
 import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 
 const MAX_PLAYERS = 4;
-const TURN_TIMEOUT = 60000;
-const RETURN_TRIBUTE_TIMEOUT = 60000;
+const PLAYER_ACTION_TIMEOUT = 90000;
+const TURN_TIMEOUT = PLAYER_ACTION_TIMEOUT;
+const RETURN_TRIBUTE_TIMEOUT = PLAYER_ACTION_TIMEOUT;
 
 export class GameRoom {
   id: string;

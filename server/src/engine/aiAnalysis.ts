@@ -3,7 +3,6 @@ import { createDeck } from './card';
 import { canBeat } from './compare';
 import type { AiDecisionContext } from './llmAi';
 
-export type GeneratePlays = (hand: Card[], level: number) => CardPattern[];
 export type ChoosePlay = (
   hand: Card[], last: CardPattern | null, free: boolean, level: number,
   context: AiDecisionContext,

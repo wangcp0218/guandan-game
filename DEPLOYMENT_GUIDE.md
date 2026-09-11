@@ -160,11 +160,12 @@ PORT=3000
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=replace_with_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEK_TIMEOUT_MS=8000
 LOCAL_LLM_BASE_URL=http://192.168.150.51:3000/v1
 LOCAL_LLM_API_KEY=replace_with_local_model_api_key
-LOCAL_LLM_TIMEOUT_MS=20000
 ```
+
+玩家出牌及还贡超时统一为90秒。DeepSeek 和 local 请求超时统一为20秒，
+旧的 `DEEPSEEK_TIMEOUT_MS`、`LOCAL_LLM_TIMEOUT_MS`、`LLM_TIMEOUT_MS` 环境变量不再覆盖此设置。
 
 设置权限：
 

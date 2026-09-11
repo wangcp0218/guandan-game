@@ -9,8 +9,7 @@ export const DEFAULT_AI_SELECTION: AiModelSelection = {
   provider: 'deepseek',
   model: 'deepseek-v4-flash',
 };
-const DEFAULT_TIMEOUT = 8000;
-const DEFAULT_LOCAL_TIMEOUT = 20000;
+const MODEL_REQUEST_TIMEOUT = 20000;
 
 interface ProviderConfig {
   baseUrl: string;
@@ -43,15 +42,6 @@ export interface AiDecisionContext {
   actionHistory?: AiRecentAction[];
   passCount?: number;
   publicTransfers?: Array<{ fromSeat: number; toSeat: number; card: Card }>;
-}
-
-function getTimeoutMs(provider: AiProvider): number {
-  const configured = Number(provider === 'local'
-    ? process.env.LOCAL_LLM_TIMEOUT_MS || process.env.LLM_TIMEOUT_MS
-    : process.env.DEEPSEEK_TIMEOUT_MS || process.env.LLM_TIMEOUT_MS
-  );
-  const fallback = provider === 'local' ? DEFAULT_LOCAL_TIMEOUT : DEFAULT_TIMEOUT;
-  return Number.isFinite(configured) && configured > 0 ? configured : fallback;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -89,7 +79,7 @@ export async function fetchAvailableAiModels(provider: AiProvider): Promise<stri
   if (!config.apiKey) throw new Error(`${provider} API key is not configured`);
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs(provider));
+  const timeoutId = setTimeout(() => controller.abort(), MODEL_REQUEST_TIMEOUT);
   try {
     const response = await fetch(`${config.baseUrl}/models`, {
       headers: { Authorization: `Bearer ${config.apiKey}` },
@@ -290,8 +280,9 @@ export async function llmFindBestPlay(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), getTimeoutMs(normalizedSelection.provider));
+    const timeoutId = setTimeout(() => controller.abort(), MODEL_REQUEST_TIMEOUT);
     let response: Response;
+    let data: any;
     try {
       const requestBody: Record<string, unknown> = {
         model: normalizedSelection.model,
@@ -315,6 +306,8 @@ export async function llmFindBestPlay(
         body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
+      // Keep the deadline active until the entire model response is read.
+      if (response.ok) data = await response.json();
     } finally {
       clearTimeout(timeoutId);
     }
@@ -324,7 +317,6 @@ export async function llmFindBestPlay(
       return undefined;
     }
 
-    const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
     if (!content) return undefined;
     const parsed = parseModelResponse(content);

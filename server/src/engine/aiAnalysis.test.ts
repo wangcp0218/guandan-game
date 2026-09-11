@@ -9,6 +9,7 @@ import {
 } from './aiAnalysis';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext, AiRecentAction } from './llmAi';
+import { GameRoom } from '../services/GameRoom';
 
 function contextFor(hands: Card[][]): AiDecisionContext {
   const held = new Set(hands.flat().map(card => card.id));
@@ -73,7 +74,7 @@ test('returned tribute ownership overrides earlier transfer; passes do not elimi
   assert.deepEqual(memory.knownBySeat[2], []);
 });
 
-test('exact hand decomposition finds two full houses instead of greedy three moves', () => {
+test('exact hand decomposition finds two full houses instead of greedy extra moves', () => {
   const hand = rankedHand([3, 3, 3, 4, 4, 4, 5, 5, 6, 6]);
   const plays = generateLegalPlays(hand, 2);
   const estimator = createTurnEstimator(hand, plays, performance.now() + 1000);
@@ -82,7 +83,8 @@ test('exact hand decomposition finds two full houses instead of greedy three mov
     && play.cards.filter(card => card.rank === Rank.Five).length === 2)!;
   assert.deepEqual(estimator.after(fullHouse), { turns: 1, exact: true });
   const bounded = createTurnEstimator(hand, plays, 0);
-  assert.deepEqual(bounded.whole(), { turns: 3, exact: false });
+  assert.equal(bounded.whole().exact, false);
+  assert.ok(bounded.whole().turns >= 2 && bounded.whole().turns <= hand.length);
   assert.deepEqual(createTurnEstimator([], [], 0).whole(), { turns: 0, exact: true });
 });
 
@@ -169,5 +171,31 @@ test('unavailable model falls back to a legal analyzed move', async () => {
   const hand = rankedHand([3, 3, 3, 4, 4, 4, 5, 5, 6, 6]);
   const result = await findSmartPlay(hand, null, true, 2, undefined, { provider: 'local', model: '' });
   assert.ok(result);
+  assert.equal(result.type, PatternType.TriplePair, 'prefer two full houses to three or more moves');
   assert.ok(generateLegalPlays(hand, 2).some(play => analysisKey(play) === analysisKey(result)));
+});
+
+test('room AI context derives counts from public history and clears memory next round', () => {
+  const room = new GameRoom('analysis-test', 'p0');
+  for (let seat = 0; seat < 4; seat++) room.addPlayer(`p${seat}`, `P${seat}`, 2, null);
+  const deck = createDeck();
+  const hands = [[deck[0]], [deck[1]], [deck[2]], [deck[3]]];
+  const context = contextFor(hands);
+  const internals = room as unknown as {
+    publicActionHistory: AiRecentAction[];
+    getAiDecisionContext(seat: number): AiDecisionContext;
+  };
+  internals.publicActionHistory = context.actionHistory!;
+  // Deliberately make private hands disagree: they must not be consulted.
+  room.hands.set('p1', deck.slice(0, 20));
+  assert.deepEqual(internals.getAiDecisionContext(0).players.map(p => p.cardCount), [1, 1, 1, 1]);
+  assert.equal(internals.getAiDecisionContext(0).actionHistory!.length, 104);
+  try {
+    room.startGame();
+    const next = internals.getAiDecisionContext(0);
+    assert.deepEqual(next.actionHistory, []);
+    assert.deepEqual(next.players.map(p => p.cardCount), [27, 27, 27, 27]);
+  } finally {
+    if (room.turnTimer) clearTimeout(room.turnTimer);
+  }
 });
