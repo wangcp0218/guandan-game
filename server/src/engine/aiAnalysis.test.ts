@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import { createDeck } from './card';
-import { findBestPlay, generateLegalPlays, findSmartPlay } from './ai';
+import { findBestPlay, generateLegalPlays, findSmartPlay, enforceTeamStrategy } from './ai';
+import type { DecisionAnalysis } from './aiAnalysis';
 import {
   analyzeDecision, analysisKey, buildPublicKnowledge, createTurnEstimator,
   rollout, sampleHiddenHands,
@@ -38,6 +39,66 @@ function contextFor(hands: Card[][]): AiDecisionContext {
 function rankedHand(ranks: Rank[]): Card[] {
   return ranks.map((rank, id) => ({ id, rank, suit: [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond][id % 4] }));
 }
+
+test('final policy rejects overtaking partner and prioritizes a direct finish', () => {
+  const hand = rankedHand([14, 16, 3]);
+  const candidates = generateLegalPlays(hand, 2);
+  const context = contextFor([hand, [], [], []]);
+  context.lastPlayPlayerIndex = 2;
+  const last: CardPattern = { type: PatternType.Single, rank: Rank.King, length: 1,
+    cards: [{ id: 99, suit: Suit.Spade, rank: Rank.King }] };
+  const large = candidates.find(p => p.rank === Rank.BigJoker)!;
+  assert.equal(enforceTeamStrategy(large, candidates, hand, last, false, 2, context), null);
+  const finishHand = [hand[1]];
+  const finishPlays = generateLegalPlays(finishHand, 2);
+  assert.equal(enforceTeamStrategy(null, finishPlays, finishHand, last, false, 2, context)?.rank, Rank.BigJoker);
+});
+
+test('final policy chooses smaller equivalent pairs but does not break a bomb', () => {
+  const hand = rankedHand([3, 3, 13, 13, 7]);
+  const plays = generateLegalPlays(hand, 2);
+  const high = plays.find(p => p.type === PatternType.Pair && p.rank === Rank.King)!;
+  assert.equal(enforceTeamStrategy(high, plays, hand, null, true, 2)?.rank, Rank.Three);
+  const bombHand = rankedHand([3, 3, 3, 3, 13, 13, 7]);
+  const bombPlays = generateLegalPlays(bombHand, 2);
+  const intact = bombPlays.find(p => p.type === PatternType.Pair && p.rank === Rank.King)!;
+  assert.equal(enforceTeamStrategy(intact, bombPlays, bombHand, null, true, 2)?.rank, Rank.King);
+});
+
+test('four lucky simulations do not authorize overtaking partner; substantial paired evidence can', () => {
+  const hand = rankedHand([14, 7]);
+  const plays = generateLegalPlays(hand, 2);
+  const high = plays.find(p => p.rank === Rank.Ace)!;
+  const last: CardPattern = { type: PatternType.Single, rank: Rank.King, length: 1,
+    cards: [{ id: 99, suit: Suit.Spade, rank: Rank.King }] };
+  const context = contextFor([hand, [], [], []]);
+  context.lastPlayPlayerIndex = 2;
+  context.players[1].cardCount = 2;
+  const analysis: DecisionAnalysis = {
+    handTurns: { turns: 2, exact: true },
+    candidates: { [analysisKey(high)]: { remainingTurns: { turns: 1, exact: true },
+      simulation: { samples: 4, meanReward: 1, winRate: 1, doubleWinRate: 1 } } },
+    passSimulation: { samples: 4, meanReward: 0, winRate: 0.5, doubleWinRate: 0 },
+    simulation: { samples: 4, elapsedMs: 10, status: 'sampled' },
+  };
+  assert.equal(enforceTeamStrategy(high, plays, hand, last, false, 2, context, analysis), null);
+  analysis.candidates[analysisKey(high)].simulation!.samples = 8;
+  analysis.passSimulation!.samples = 8;
+  assert.equal(enforceTeamStrategy(high, plays, hand, last, false, 2, context, analysis), high);
+});
+
+test('public memory allows a necessary single interception but not overtaking an unbeatable partner', () => {
+  const deck = createDeck();
+  const hands = [[deck[53], deck[1]], [deck[52]], [deck[2]], [deck[3]]];
+  const context = contextFor(hands);
+  context.lastPlayPlayerIndex = 2;
+  const plays = generateLegalPlays(hands[0], 2);
+  const big = plays.find(p => p.rank === Rank.BigJoker)!;
+  const last: CardPattern = { type: PatternType.Single, rank: Rank.Ace, cards: [], length: 1 };
+  assert.equal(enforceTeamStrategy(big, plays, hands[0], last, false, 2, context), big);
+  const unbeatable = { ...last, rank: Rank.SmallJoker };
+  assert.equal(enforceTeamStrategy(big, plays, hands[0], unbeatable, false, 2, context), null);
+});
 
 test('complete public memory counts physical wildcard and pins public transfers only', () => {
   const deck = createDeck();

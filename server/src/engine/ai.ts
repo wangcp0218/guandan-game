@@ -6,7 +6,7 @@ import {
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext } from './llmAi';
-import { analyzeDecision, analysisKey } from './aiAnalysis';
+import { analyzeDecision, analysisKey, buildPublicKnowledge } from './aiAnalysis';
 import type { DecisionAnalysis } from './aiAnalysis';
 
 const MAX_LLM_CANDIDATES = 160;
@@ -252,40 +252,8 @@ function applyStrategicGuards(
     }
   }
 
-  // A leading single should spend the least valuable ordinary card. Keeping the
-  // candidate set this way prevents an LLM from opening with a joker or level
-  // card while a normal single is still available.
-  if (isFreePlay && hand.length > 1) {
-    const ordinarySingles = guarded.filter(play =>
-      play.type === PatternType.Single
-      && !isJoker(play.cards[0])
-      && !isWildCard(play.cards[0], currentLevel)
-    );
-    if (ordinarySingles.length > 0) {
-      const rankCounts = getRankCounts(hand);
-      const loneSingles = ordinarySingles.filter(play =>
-        (rankCounts.get(play.cards[0].rank)?.length || 0) === 1
-      );
-      const preferredSingles = loneSingles.length > 0 ? loneSingles : ordinarySingles;
-      const lowestRank = Math.min(...preferredSingles.map(play =>
-        effectiveRank(play.cards[0].rank, currentLevel)
-      ));
-      const allowedSingleKeys = new Set(preferredSingles
-        .filter(play => effectiveRank(play.cards[0].rank, currentLevel) === lowestRank)
-        .map(strategicPlayKey));
-      guarded = guarded.filter(play =>
-        play.type !== PatternType.Single || allowedSingleKeys.has(strategicPlayKey(play))
-      );
-    }
-  }
-
-  // Never spend a bomb to overtake the partner unless it immediately empties the hand.
-  const partnerLed = context
-    && context.lastPlayPlayerIndex >= 0
-    && context.lastPlayPlayerIndex === context.partnerSeatIndex;
-  if (partnerLed) {
-    guarded = guarded.filter(play => !isBombPattern(play) || play.cards.length === hand.length);
-  }
+  // Keep larger singles and partner-overtaking actions available for analysis.
+  // The final policy enforces cooperation and low-first with evidence-based exceptions.
 
   return guarded;
 }
@@ -309,7 +277,9 @@ function scorePlay(
     player.relation === 'opponent' && player.finishRank === null && player.cardCount <= 5
   ) || false;
 
-  let score = play.cards.length * 120 - effectiveRank(play.rank, currentLevel) * 2;
+  const sequence = [PatternType.Straight, PatternType.ConsecutivePair, PatternType.Plane,
+    PatternType.FlushStraight].includes(play.type);
+  let score = play.cards.length * 120 - (sequence ? play.rank : effectiveRank(play.rank, currentLevel)) * 6;
   if (play.cards.length > 1) score += 100;
   if ([PatternType.Straight, PatternType.TriplePair, PatternType.ConsecutivePair, PatternType.Plane].includes(play.type)) {
     score += 100;
@@ -427,6 +397,70 @@ export function findBestTribute(hand: Card[], currentLevel: number): Card {
   return best;
 }
 
+function materiallyBetterSimulation(
+  play: CardPattern, alternative: CardPattern | null, analysis?: DecisionAnalysis,
+): boolean {
+  const result = analysis?.candidates[analysisKey(play)]?.simulation;
+  const other = alternative
+    ? analysis?.candidates[analysisKey(alternative)]?.simulation : analysis?.passSimulation;
+  // Small samples and marginal differences must not override team cooperation
+  // or spending the weakest sufficient card. A sampled 100% is not proof.
+  return !!result && !!other && result.samples >= 8 && result.samples === other.samples
+    && result.meanReward - other.meanReward >= 0.25;
+}
+
+/** Publicly provable interception of a reported single: the weaker card can be
+ * overtaken, while no unseen single can beat the proposed card. No hidden hands. */
+function blocksReportedSingle(
+  play: CardPattern, weaker: CardPattern, hand: Card[], level: number,
+  context?: AiDecisionContext,
+): boolean {
+  if (play.type !== PatternType.Single || weaker.type !== PatternType.Single || !context
+    || !context.players.some(p => p.relation === 'opponent' && p.finishRank === null && p.cardCount === 1)) return false;
+  const memory = buildPublicKnowledge(hand, context);
+  if (!memory) return false;
+  return memory.unseen.some(card => effectiveRank(card.rank, level) > effectiveRank(weaker.rank, level))
+    && memory.unseen.every(card => effectiveRank(card.rank, level) <= effectiveRank(play.rank, level));
+}
+
+/** Enforced for both LLM replies and local fallback; explanations alone cannot
+ * authorize overtaking the partner or spending a stronger equivalent group. */
+export function enforceTeamStrategy(
+  proposed: CardPattern | null, candidates: CardPattern[], hand: Card[],
+  last: CardPattern | null, free: boolean, level: number,
+  context?: AiDecisionContext, analysis?: DecisionAnalysis,
+): CardPattern | null {
+  const finish = candidates.find(play => play.cards.length === hand.length);
+  if (finish) return finish;
+  if (!proposed) return null;
+  const partnerLed = !free && last && context
+    && context.lastPlayPlayerIndex === context.partnerSeatIndex;
+  if (partnerLed && last) {
+    const urgent = context?.players.some(p => p.relation === 'opponent'
+      && p.finishRank === null && p.cardCount <= 5);
+    if (!blocksReportedSingle(proposed, last, hand, level, context)
+      && !(urgent && materiallyBetterSimulation(proposed, null, analysis))) return null;
+  }
+  const alternatives = candidates.filter(play => play.cards.length === proposed.cards.length
+    && (play.type === proposed.type || (isBombPattern(play) && isBombPattern(proposed)))
+    && canBeat(proposed, play, level)
+    && (free || canBeat(play, last, level)));
+  const ordered = orderCandidates([...alternatives, proposed], hand, level, free, context, analysis);
+  for (const lower of ordered) {
+    if (lower === proposed) break;
+    const lowerTurns = analysis?.candidates[analysisKey(lower)]?.remainingTurns;
+    const proposedTurns = analysis?.candidates[analysisKey(proposed)]?.remainingTurns;
+    if (lowerTurns && proposedTurns && lowerTurns.turns > proposedTurns.turns) continue;
+    if (materiallyBetterSimulation(proposed, lower, analysis)
+      || blocksReportedSingle(proposed, lower, hand, level, context)) continue;
+    // Do not weaken an interception of the partner's trick back into a pass.
+    if (partnerLed && last && !blocksReportedSingle(lower, last, hand, level, context)
+      && !materiallyBetterSimulation(lower, null, analysis)) continue;
+    return lower;
+  }
+  return proposed;
+}
+
 export async function findSmartPlay(
   hand: Card[],
   lastPattern: CardPattern | null,
@@ -479,10 +513,14 @@ export async function findSmartPlay(
       analysis,
     );
     // undefined means the model was unavailable/invalid; null is an intentional pass.
-    if (llmResult !== undefined) return llmResult;
+    if (llmResult !== undefined) return enforceTeamStrategy(
+      llmResult, legalPlays, hand, lastPattern, isFreePlay, currentLevel, context, analysis,
+    );
   } catch {}
 
-  return fallbackResult;
+  return enforceTeamStrategy(
+    fallbackResult, legalPlays, hand, lastPattern, isFreePlay, currentLevel, context, analysis,
+  );
 }
 
 export function findBestReturnTribute(hand: Card[]): Card {
