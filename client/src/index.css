@@ -1080,8 +1080,6 @@ button:disabled { cursor: default; }
     grid-template-rows: minmax(0, 1fr) 56px 36px;
   }
   .game-action-bar { grid-row: 2; }
-  .play-card-count { display: none; }
-
   .player-info.is-current {
     border-color: #ffd43b !important;
     background: linear-gradient(145deg, rgba(255, 218, 62, .94), rgba(218, 157, 19, .94)) !important;
