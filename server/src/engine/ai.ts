@@ -6,6 +6,8 @@ import {
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext } from './llmAi';
+import { analyzeDecision, analysisKey } from './aiAnalysis';
+import type { DecisionAnalysis } from './aiAnalysis';
 
 const MAX_LLM_CANDIDATES = 160;
 
@@ -361,13 +363,17 @@ function orderCandidates(
   currentLevel: number,
   isFreePlay: boolean,
   context?: AiDecisionContext,
+  analysis?: DecisionAnalysis,
 ): CardPattern[] {
   const protectedCardIds = new Set(plays
     .filter(play => play.type === PatternType.FlushStraight || play.type === PatternType.KingBomb)
     .flatMap(play => play.cards.map(card => card.id)));
   const scores = new Map(plays.map(play => [
     play,
-    scorePlay(play, hand, currentLevel, isFreePlay, context, protectedCardIds),
+    scorePlay(play, hand, currentLevel, isFreePlay, context, protectedCardIds)
+      + (analysis?.candidates[analysisKey(play)]
+        ? 180 * (analysis.handTurns.turns - analysis.candidates[analysisKey(play)].remainingTurns.turns - 1)
+        : 0),
   ]));
   return [...plays].sort((a, b) => scores.get(b)! - scores.get(a)!);
 }
@@ -430,7 +436,8 @@ export async function findSmartPlay(
   selection?: AiModelSelection,
 ): Promise<CardPattern | null> {
   const ruleResult = findBestPlay(hand, lastPattern, isFreePlay, currentLevel, context);
-  let legalPlays = generateLegalPlays(hand, currentLevel);
+  const allPlays = generateLegalPlays(hand, currentLevel);
+  let legalPlays = allPlays;
   if (!isFreePlay && lastPattern) {
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
@@ -440,13 +447,25 @@ export async function findSmartPlay(
   // Base7-ranked slice so a combinatorial hand cannot overflow its context.
   legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context)
     .slice(0, MAX_LLM_CANDIDATES);
-
-  const guardedRuleResult = ruleResult && legalPlays.some(play =>
-    strategicPlayKey(play) === strategicPlayKey(ruleResult)
-  ) ? ruleResult : null;
-  const fallbackResult = guardedRuleResult
-    || ruleResult
-    || (isFreePlay ? legalPlays[0] || null : null);
+  const analysis = await analyzeDecision(
+    hand, allPlays, legalPlays, isFreePlay ? null : lastPattern,
+    currentLevel, context, findBestPlay,
+  );
+  legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context, analysis);
+  let fallbackResult = (isFreePlay || ruleResult) ? legalPlays[0] || ruleResult : null;
+  // Do not let one lucky hidden-hand sample override the baseline. Compare
+  // paired, completed simulations only, retaining baseline preference on ties.
+  if (analysis.simulation.samples >= 4) {
+    const simulated = legalPlays.filter(play => analysis.candidates[analysisKey(play)]?.simulation);
+    simulated.sort((a, b) => analysis.candidates[analysisKey(b)].simulation!.meanReward
+      - analysis.candidates[analysisKey(a)].simulation!.meanReward);
+    if (simulated.length) {
+      fallbackResult = simulated[0];
+      const best = analysis.candidates[analysisKey(simulated[0])].simulation!;
+      if (analysis.passSimulation && (analysis.passSimulation.meanReward > best.meanReward
+        || (!ruleResult && analysis.passSimulation.meanReward === best.meanReward))) fallbackResult = null;
+    }
+  }
 
   try {
     const llmResult = await llmFindBestPlay(
@@ -457,6 +476,7 @@ export async function findSmartPlay(
       currentLevel,
       context,
       selection,
+      analysis,
     );
     // undefined means the model was unavailable/invalid; null is an intentional pass.
     if (llmResult !== undefined) return llmResult;

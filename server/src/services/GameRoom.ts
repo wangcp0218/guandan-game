@@ -29,6 +29,7 @@ export class GameRoom {
   currentLevel: number = Rank.Two;
   turnTimer: ReturnType<typeof setTimeout> | null = null;
   recentActions: AiRecentAction[] = [];
+  private publicActionHistory: AiRecentAction[] = [];
   private roundReplay: string[] = [];
   roundNumber: number = 0;
   teamLevels: [Rank, Rank] = [Rank.Two, Rank.Two];
@@ -142,6 +143,7 @@ export class GameRoom {
     this.hands.clear();
     this.rankings = [];
     this.recentActions = [];
+    this.publicActionHistory = [];
     this.roundReplay = [];
 
     this.reportedCounts.clear();
@@ -251,6 +253,7 @@ export class GameRoom {
     this.hands.clear();
     this.rankings = [];
     this.recentActions = [];
+    this.publicActionHistory = [];
 
     for (let i = 0; i < MAX_PLAYERS; i++) {
       const player = this.players[i];
@@ -760,6 +763,7 @@ export class GameRoom {
 
   private recordAiAction(action: AiRecentAction) {
     this.recentActions = [...this.recentActions.slice(-11), action];
+    this.publicActionHistory.push(action);
     const playerName = this.players[action.seatIndex]?.name || '未知玩家';
     if (action.action === 'pass') {
       this.roundReplay.push(`${playerName}：不出`);
@@ -793,7 +797,11 @@ export class GameRoom {
       leadingTeam: this.leadingTeam,
       players: this.players.map((player, seatIndex) => ({
         seatIndex,
-        cardCount: this.hands.get(player.id)?.length || 0,
+        // Every player starts play with 27 cards after tribute. Counts can be
+        // inferred from public plays even before a count announcement.
+        cardCount: 27 - this.publicActionHistory.reduce((count, action) =>
+          count + (action.seatIndex === seatIndex && action.action === 'play'
+            ? action.pattern?.cards.length || 0 : 0), 0),
         finishRank: this.rankings.find(item => item.playerId === player.id)?.rank || null,
         relation: seatIndex === playerIdx
           ? 'self'
@@ -802,6 +810,20 @@ export class GameRoom {
             : 'opponent',
       })),
       recentActions: [...this.recentActions],
+      actionHistory: [...this.publicActionHistory],
+      passCount: this.state?.passCount || 0,
+      publicTransfers: [
+        ...(this.state?.tributeExchanges || []).map(exchange => ({
+          fromSeat: this.players.findIndex(player => player.id === exchange.fromPlayerId),
+          toSeat: this.players.findIndex(player => player.id === exchange.toPlayerId),
+          card: exchange.tributeCard,
+        })),
+        ...(this.state?.tributeExchanges || []).flatMap(exchange => exchange.returnCard ? [{
+          fromSeat: this.players.findIndex(player => player.id === exchange.toPlayerId),
+          toSeat: this.players.findIndex(player => player.id === exchange.fromPlayerId),
+          card: exchange.returnCard,
+        }] : []),
+      ],
     };
   }
 

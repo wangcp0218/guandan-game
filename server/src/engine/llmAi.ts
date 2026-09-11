@@ -1,5 +1,7 @@
 import { AiModelSelection, AiProvider, Card, CardPattern, PatternType } from '../../../shared/types';
 import { cardDisplayName, sortCards } from './card';
+import { analysisKey, buildPublicKnowledge } from './aiAnalysis';
+import type { DecisionAnalysis } from './aiAnalysis';
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const LOCAL_BASE_URL = 'http://192.168.150.51:3000/v1';
@@ -37,6 +39,10 @@ export interface AiDecisionContext {
   leadingTeam: 0 | 1;
   players: AiPlayerSnapshot[];
   recentActions: AiRecentAction[];
+  /** Complete public play/pass history since this deal started. */
+  actionHistory?: AiRecentAction[];
+  passCount?: number;
+  publicTransfers?: Array<{ fromSeat: number; toSeat: number; card: Card }>;
 }
 
 function getTimeoutMs(provider: AiProvider): number {
@@ -156,8 +162,9 @@ function describePlayers(context?: AiDecisionContext): string {
 }
 
 function describeHistory(context?: AiDecisionContext): string {
-  if (!context || context.recentActions.length === 0) return '暂无';
-  return context.recentActions.map(item => item.action === 'pass'
+  const history = context?.actionHistory ?? context?.recentActions;
+  if (!history?.length) return '暂无';
+  return history.map(item => item.action === 'pass'
     ? `座位${item.seatIndex}：不出`
     : `座位${item.seatIndex}：${describePattern(item.pattern || null)}`
   ).join('\n');
@@ -184,6 +191,7 @@ export async function llmFindBestPlay(
   currentLevel: number,
   context?: AiDecisionContext,
   selection: AiModelSelection = DEFAULT_AI_SELECTION,
+  analysis?: DecisionAnalysis,
 ): Promise<CardPattern | null | undefined> {
   const normalizedSelection = normalizeAiSelection(selection.provider, selection.model);
   const providerConfig = getProviderConfig(normalizedSelection.provider);
@@ -196,7 +204,7 @@ export async function llmFindBestPlay(
 使用两副牌、四人两队、对家为队友。牌型包括单张、对子、三张、三带二、固定5张顺子、固定3连对、固定2连三钢板、炸弹、同花顺和四王炸。红桃级牌是逢人配，可代替除大小王外的任意牌。牌力为大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹先比张数再比点数，同花顺大于五炸小于六炸，四王炸最大。平台传入的规则与合法动作集合拥有最高优先级。你不判断合法性，只能选择legal_actions中的action_id，绝不能创造动作或修改动作里的牌。
 
 【信息边界】
-只能使用本轮输入中的自己手牌、桌面牌、玩家剩余牌数、最近公开行动、当前级牌和合法动作。不得假设知道其他玩家实际手牌，不得使用隐藏信息，不得把推断当成事实。对未知牌只能使用概率判断；未提供完整公开牌历史时，不得声称完成了精确记牌。
+只能使用本轮输入中的自己手牌、桌面牌、公开出牌推算的余牌数、公开行动与进贡还贡、当前级牌和合法动作。未见牌池只表示其余玩家合计可能持有的牌，不表示某个玩家的确定手牌。不得假设知道其他玩家实际手牌，不得把推断当成事实；过牌不代表没有能接的牌。remainingTurns是只考虑自己手牌、无对手干扰时的拆分手数，exact=false时只是可行上界。模拟胜率来自少量随机分配的未知手牌和规则AI续打，不是保证；样本少于4时不要据此改变策略，样本相近时优先手牌结构与本地排序。未提供完整公开牌历史时，不得声称完成了精确记牌。
 
 【决策优先级】
 1. 最大化本方取得有利名次和升级的概率；2. 争取本方双上；3. 避免对方双上；4. 帮助队友取得头游；5. 控制关键牌权；6. 保存炸弹、同花顺和逢人配的战略价值；7. 减少孤张并优化手牌结构；8. 收益接近时选择风险更低、信息暴露更少的打法。必要时主动让牌、送队友、阻击对手或牺牲自己的名次。
@@ -225,6 +233,7 @@ export async function llmFindBestPlay(
   const stage = minimumActiveCount !== undefined && minimumActiveCount <= 5
     ? '残局'
     : hand.length >= 20 ? '开局' : hand.length >= 10 ? '中盘' : '收官';
+  const knowledge = context ? buildPublicKnowledge(hand, context) : null;
   const input = {
     seat: context?.selfSeatIndex ?? '未知',
     partner_seat: context?.partnerSeatIndex ?? '未知',
@@ -249,7 +258,23 @@ export async function llmFindBestPlay(
       cards: player.cardCount,
       finish_rank: player.finishRank,
     })) || [],
-    public_history_scope: '最近最多12步；未提供完整公开牌池，不得假装精确记牌',
+    public_history_scope: knowledge ? '本局完整公开出牌与过牌；未见牌不确定属于哪家'
+      : '公开历史不完整或不一致，不能精确记牌',
+    public_memory: knowledge ? {
+      played_cards: describeHand(knowledge.played, currentLevel),
+      unseen_cards: describeHand(knowledge.unseen, currentLevel),
+      publicly_known_cards: knowledge.knownBySeat.map((cards, seat) => ({
+        seat, cards: describeHand(cards, currentLevel),
+      })),
+    } : undefined,
+    tribute_history: context?.publicTransfers?.map(transfer => ({
+      from_seat: transfer.fromSeat, to_seat: transfer.toSeat, card: cardDisplayName(transfer.card),
+    })),
+    local_analysis: analysis ? {
+      hand_turns: analysis.handTurns, simulation: analysis.simulation,
+      pass_simulation: analysis.passSimulation,
+      caveat: '手数不含对手干扰；抽样模拟不是校准后的真实胜率',
+    } : undefined,
     action_history: describeHistory(context).split('\n'),
     legal_actions: legalPlays.map((option, actionId) => ({
       action_id: actionId,
@@ -257,6 +282,7 @@ export async function llmFindBestPlay(
       cards: option.cards.map(card => cardDisplayName(card)),
       rank: option.rank,
       length: option.length,
+      analysis: analysis?.candidates[analysisKey(option)],
     })),
   };
   const userPrompt = `请根据以下牌桌输入选择动作：\n${JSON.stringify(input)}\n
