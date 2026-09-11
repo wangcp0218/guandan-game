@@ -1413,7 +1413,7 @@ button:disabled { cursor: default; }
   .game-bottom-area { z-index: 30; }
   .game-room:not(.is-waiting) .game-bottom-area {
     height: 34dvh;
-    grid-template-rows: minmax(0, 1fr) 36px;
+    grid-template-rows: minmax(0, 1fr) 44px;
   }
   .game-action-bar {
     grid-row: 2;
@@ -1422,12 +1422,12 @@ button:disabled { cursor: default; }
   }
   .game-play-actions { gap: 3px; }
   .game-play-actions button {
-    min-width: 40px;
-    min-height: 32px;
-    padding: 4px 5px !important;
-    font-size: 10px !important;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 6px 6px !important;
+    font-size: 11px !important;
   }
-  .game-play-actions button:first-child { min-width: 46px; }
+  .game-play-actions button:first-child { min-width: 50px; }
   .hand-cards {
     justify-content: flex-start;
     justify-content: safe center;
