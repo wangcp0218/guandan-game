@@ -103,12 +103,13 @@ export function setupSocketHandlers(io: Server) {
         return;
       }
       const aiModelSelection = normalizeAiSelection(data.aiProvider, data.aiModel);
+      const aiUseLLM = data.aiUseLLM !== false;
       // A model is only required when the room actually uses LLM decisions.
-      if (data.aiUseLLM === true && !aiModelSelection.model) {
+      if (aiUseLLM && !aiModelSelection.model) {
         socket.emit('error', { message: '请选择 AI 模型' });
         return;
       }
-      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', aiModelSelection, data.aiUseLLM === true);
+      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', aiModelSelection, aiUseLLM);
       const bounded = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10000 ? value : 0;
       room.competition = { maxRounds: bounded(data.maxRounds), maxMinutes: bounded(data.maxMinutes), tripleDoublePenalty: data.tripleDoublePenalty === true };
       socket.emit('room_created', room.toRoomInfo());

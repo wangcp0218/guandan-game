@@ -54,3 +54,20 @@ test('waiting room departure still frees the seat', () => {
   room.removePlayer('p0');
   assert.equal(room.getPlayerCount(), 0);
 });
+
+test('LLM is default and AI turns retain the 90-second watchdog', () => {
+  const room = new GameRoom('ai-timeout-test', 'p0');
+  assert.equal(room.aiUseLLM, true);
+  room.addPlayer('p0', 'P0', 2, null);
+  room.fillWithAI();
+  room.startGame();
+  try {
+    if (room.turnTimer) clearTimeout(room.turnTimer);
+    const aiIndex = room.players.findIndex(player => player.isAI);
+    room.state!.currentPlayerIndex = aiIndex;
+    (room as unknown as { startTurn(): void }).startTurn();
+    assert.ok(room.turnTimer);
+    const remaining = room.state!.actionDeadline! - Date.now();
+    assert.ok(remaining > 89_000 && remaining <= 90_000);
+  } finally { room.clearPlayers(); }
+});

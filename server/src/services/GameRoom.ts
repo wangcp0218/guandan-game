@@ -47,14 +47,13 @@ export class GameRoom {
     ownerId: string,
     password: string = '',
     aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
-    aiUseLLM: boolean = false,
+    aiUseLLM: boolean = true,
   ) {
     this.id = uuidv4();
     this.name = name;
     this.password = password;
     this.aiModelSelection = aiModelSelection;
-    // The rule-based AI (findBestPlay) is the default path: instant, zero
-    // external dependency. LLM decisions are an explicit per-room opt-in.
+    // LLM-assisted decisions are the default; rooms may explicitly opt out.
     this.aiUseLLM = aiUseLLM;
     this.ownerId = ownerId;
   }
@@ -573,9 +572,9 @@ export class GameRoom {
     this.state.actionDeadline = Date.now() + TURN_TIMEOUT;
     this.broadcastState();
     if (currentPlayer.isAI) {
-      // The AI always resolves to a play or pass (aiPlay never hangs), so a
-      // forced timeout could only race a slow LLM response and cost the AI its
-      // trick. No timer is scheduled for AI turns.
+      // Keep the same watchdog for every player. aiPlay snapshots the state,
+      // so a delayed model response is ignored after this timeout advances it.
+      this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
       setTimeout(() => this.aiPlay(), 500);
     } else {
       this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);

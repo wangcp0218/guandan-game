@@ -44,13 +44,13 @@ Uses JSON files at `data/users.json` and `data/records.json` (no native modules 
 
 ### AI flow (critical)
 
-`findBestPlay` is the sync rule-based AI and the **default path** in `GameRoom.aiPlay()` (`aiUseLLM === false`): instant, deterministic, no external dependency. `findSmartPlay` (async; DeepSeek via `llmAi.ts`) runs only for rooms created with the 智能 AI toggle (`aiUseLLM === true`); it gates itself further by skipping the simulation budget and model for trivial decisions (≤4 legal plays). AI turns do **not** schedule the 30s forced timeout (see `startTurn`), so a slow LLM response can never force the AI to pass and lose its trick.
+`findSmartPlay` is the default path in `GameRoom.aiPlay()` (`aiUseLLM === true`) and uses the room's selected model. `findBestPlay` is the deterministic fallback and is used directly only when the room explicitly disables 智能 AI. Strategic analysis/model calls are skipped only for a truly forced action. Every player, including AI, has a 90-second watchdog; model requests have their own shorter timeout, and delayed results are discarded using a state snapshot.
 
 ### GameRoom turn flow (where bugs hide)
 
 ```
 startTurn → (AI: setTimeout 500ms → aiPlay → findBestPlay | findSmartPlay → playCards)
-           → (human: wait 30s timeout)
+           → (all players: 90s watchdog; model request: 20s timeout)
 
 playCards → advanceTurn → broadcastState → startTurn()  ← MUST call startTurn!
 handlePass → advanceTurn → broadcastState → startTurn()  ← MUST call startTurn!
@@ -109,4 +109,4 @@ Service management: `systemctl status/restart oowsp` (via sudo). Nginx config at
 - PM2 was previously installed and may auto-manage the process. Check with `pm2 list` if systemd restart fails with EADDRINUSE
 - Client hard-refresh needed after deploy (`Cmd+Shift+R`) — Vite content-hashed filenames help but HTML may be cached
 - `broadcastState` is **public** (needed by socketHandlers for rejoin support)
-- TURN_TIMEOUT = 30000 (30 seconds)
+- TURN_TIMEOUT = 90000 (90 seconds)

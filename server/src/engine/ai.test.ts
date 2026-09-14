@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
-import { findBestPlay, generateLegalPlays, roundStake, scorePlay } from './ai';
+import { findBestPlay, generateLegalPlays, isForcedAiDecision, roundStake, scorePlay } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
 import type { AiDecisionContext } from './llmAi';
@@ -250,6 +250,33 @@ test('scorePlay prices bombs cheaper when the team trails', () => {
   const winning = fourPlayerContext({ teamLevels: [Rank.Ten, Rank.Two], leadingTeam: 0 });
   assert.ok(scorePlay(bomb, hand, Rank.Two, true, trailing)
     > scorePlay(bomb, hand, Rank.Two, true, winning));
+});
+
+test('urgency never spends a larger sufficient bomb before a smaller one', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Ace], [Suit.Heart, Rank.Ace],
+    [Suit.Club, Rank.Ace], [Suit.Diamond, Rank.Ace],
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Club, Rank.Three], [Suit.Diamond, Rank.Three], [Suit.Spade, Rank.Three],
+    [Suit.Spade, Rank.Eight],
+  ]);
+  const last = {
+    type: PatternType.Single,
+    cards: [{ id: 999, suit: Suit.Spade, rank: Rank.SmallJoker }],
+    rank: Rank.SmallJoker,
+    length: 1,
+  };
+  const trailing = fourPlayerContext({ teamLevels: [Rank.Two, Rank.Ace], leadingTeam: 1 });
+  const play = findBestPlay(hand, last, false, Rank.Two, trailing);
+  assert.equal(play?.type, PatternType.Bomb4);
+  assert.equal(play?.rank, Rank.Ace);
+});
+
+test('following with one playable action is still strategic because pass is legal', () => {
+  assert.equal(isForcedAiDecision(0, false), true);
+  assert.equal(isForcedAiDecision(1, true), true);
+  assert.equal(isForcedAiDecision(1, false), false);
+  assert.equal(isForcedAiDecision(4, false), false);
 });
 
 test('a trailing team under threat spends the bomb; a calm lead preserves structure', () => {

@@ -331,7 +331,14 @@ export function scorePlay(
     // take control, a leading team hoards them for defense.
     const tier = play.type === PatternType.KingBomb ? 8
       : play.type === PatternType.FlushStraight ? 1.5 : play.cards.length - 4;
-    score -= (play.cards.length * 120 + 100 + tier * 140) * (2 - stake);
+    // Urgency decides whether a bomb is worth spending, but must never make a
+    // larger sufficient bomb cheaper than a smaller one. Cancel the generic
+    // shedding reward unconditionally and only discount part of the tier cost.
+    score -= play.cards.length * 120 + 100;
+    score -= tier * (100 + 40 * (2 - stake));
+    // Apply match urgency equally to every bomb so it affects the bomb/pass
+    // decision without reversing the ordering between sufficient bombs.
+    score += (stake - 1) * 400;
     if (partnerLed) score -= 20_000;
     if (opponentLed && lastPlayer && lastPlayer.cardCount <= 14) score += 650 * stake;
     if (urgentOpponent) score += 600 * stake;
@@ -557,10 +564,9 @@ export async function findSmartPlay(
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
-  // Complexity gate: with a handful of choices the rule ranking is decisive;
-  // skip the simulation budget and the external model entirely. `ruleResult`
-  // already picked the best of the full legal list.
-  if (legalPlays.length <= 4) {
+  // Skip strategic analysis only when there is genuinely no choice. During a
+  // follow, PASS is also legal and even one playable bomb is a real decision.
+  if (isForcedAiDecision(legalPlays.length, isFreePlay)) {
     return enforceTeamStrategy(
       ruleResult, legalPlays, hand, lastPattern, isFreePlay, currentLevel, context,
     );
@@ -609,6 +615,10 @@ export async function findSmartPlay(
   return enforceTeamStrategy(
     fallbackResult, legalPlays, hand, lastPattern, isFreePlay, currentLevel, context, analysis,
   );
+}
+
+export function isForcedAiDecision(playableCount: number, isFreePlay: boolean): boolean {
+  return playableCount === 0 || (isFreePlay && playableCount === 1);
 }
 
 export function findBestReturnTribute(hand: Card[]): Card {

@@ -248,7 +248,7 @@ export default function Lobby() {
                     <button type="button" className="btn-secondary" onClick={() => loadAiModels(aiProvider)}>重试</button>
                   </div>
                 )}
-                <label style={styles.fieldLabel}><span><input type="checkbox" checked={aiUseLLM} onChange={e => setAiUseLLM(e.target.checked)} />智能 AI（调用大模型决策，每回合较慢；默认关闭使用本地规则 AI）</span></label>
+                <label style={styles.fieldLabel}><span><input type="checkbox" checked={aiUseLLM} onChange={e => setAiUseLLM(e.target.checked)} />智能 AI（调用大模型辅助决策，默认开启；关闭后使用本地规则 AI）</span></label>
                 {info && <p style={styles.error}>{info}</p>}
                 <div style={styles.modalBtns}>
                   <button className="btn-primary" onClick={createRoom}>创建</button>
