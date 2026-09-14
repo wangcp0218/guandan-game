@@ -1059,6 +1059,10 @@ button:disabled { cursor: default; }
     display: none !important;
   }
 
+  .seat-action-card + .seat-action-card {
+    margin-left: calc(var(--game-card-width) * -0.38) !important;
+  }
+
   .game-bottom-area {
     z-index: 20;
     display: flex;
@@ -1067,6 +1071,10 @@ button:disabled { cursor: default; }
 
   .hand-scroll {
     order: 1;
+  }
+
+  .hand-cards {
+    --hand-stack-rise: clamp(24px, 2.45vw, 40px);
   }
 
   .game-action-bar {
