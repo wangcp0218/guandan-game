@@ -335,12 +335,30 @@ function orderCandidates(
   context?: AiDecisionContext,
   analysis?: DecisionAnalysis,
 ): CardPattern[] {
+  // Evaluate retained same-type controls for every candidate before truncating
+  // the model input. A higher disjoint play is potential recapture, not proof
+  // that it can beat an opponent's unknown response.
+  const controls = new Map<string, CardPattern[]>();
+  for (const play of plays) {
+    const key = `${play.type}:${play.length}`;
+    const group = controls.get(key) || [];
+    group.push(play);
+    controls.set(key, group);
+  }
+  for (const group of controls.values()) group.sort((a, b) =>
+    canBeat(a, b, currentLevel) ? -1 : canBeat(b, a, currentLevel) ? 1 : 0);
+  const recaptureBonus = (play: CardPattern) => {
+    const used = new Set(play.cards.map(card => card.id));
+    const retained = controls.get(`${play.type}:${play.length}`)?.find(control =>
+      canBeat(control, play, currentLevel) && control.cards.every(card => !used.has(card.id)));
+    return retained ? 75 : 0;
+  };
   const protectedCardIds = new Set(plays
     .filter(play => play.type === PatternType.FlushStraight || play.type === PatternType.KingBomb)
     .flatMap(play => play.cards.map(card => card.id)));
   const scores = new Map(plays.map(play => [
     play,
-    scorePlay(play, hand, currentLevel, isFreePlay, context, protectedCardIds)
+    scorePlay(play, hand, currentLevel, isFreePlay, context, protectedCardIds) + recaptureBonus(play)
       + (analysis?.candidates[analysisKey(play)]
         ? 180 * (analysis.handTurns.turns - analysis.candidates[analysisKey(play)].remainingTurns.turns - 1)
         : 0),
