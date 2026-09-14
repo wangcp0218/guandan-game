@@ -429,6 +429,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .seat-action-player {
+  display: none;
   flex: 0 0 auto;
   max-width: 72px;
   margin-right: 5px;
@@ -1014,6 +1015,7 @@ button:disabled { cursor: default; }
     padding-left: 48px;
   }
   .seat-action-player {
+    display: block;
     position: absolute;
     top: 50%;
     left: 6px;
@@ -1048,6 +1050,18 @@ button:disabled { cursor: default; }
   .is-spectator .spectator-hand--right { top: auto; bottom: 8%; right: 2%; }
   .spectator-hand-cards { overflow-x: auto; justify-content: flex-start; pointer-events: auto; }
   .spectator-hand-card { flex-shrink: 0; }
+}
+
+/* The desktop table has a dedicated row for each seat already, so player names
+   are redundant there. Keep the local play lower and clear of the partner row. */
+@media (min-width: 601px) {
+  .seat-action-player {
+    display: none !important;
+  }
+
+  .game-room:not(.is-waiting) .game-center-play-area.is-personal-play-area {
+    top: 60% !important;
+  }
 }
 
 /* Portrait command deck: keep the header clear, move secondary actions to the

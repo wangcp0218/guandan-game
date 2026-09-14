@@ -429,7 +429,7 @@ export default function GameRoom() {
         </div>
 
         {/* Center - play area */}
-        <div className="game-center-play-area">
+        <div className={`game-center-play-area${!waiting && gameState?.phase === GamePhase.Playing ? ' is-personal-play-area' : ''}`}>
           {waiting ? (
             <div className="waiting-seat-setup">
               <p className="waiting-seat-title">开局前排座</p>
