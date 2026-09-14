@@ -31,6 +31,7 @@ export default function GameRoom() {
   const [tributeNotice, setTributeNotice] = useState('');
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
   const [spectatorDialogOpen, setSpectatorDialogOpen] = useState(false);
+  const [replayOpen, setReplayOpen] = useState(false);
   const [actionSecondsLeft, setActionSecondsLeft] = useState<number | null>(null);
 
   useEffect(() => {
@@ -65,7 +66,10 @@ export default function GameRoom() {
       setGameState(state);
       setDeclarations([]);
       setWaiting(state.phase === 'waiting');
-      if (state.phase !== 'round_end' && state.phase !== 'game_over') setRoundResult(null);
+      if (state.phase !== 'round_end' && state.phase !== 'game_over') {
+        setRoundResult(null);
+        setReplayOpen(false);
+      }
       else if (state.roundResult) setRoundResult(state.roundResult);
 
       setPlayerActions(previous => {
@@ -611,11 +615,12 @@ export default function GameRoom() {
                 {roundResult.levelPenalty ? `，触发地方规则退${roundResult.levelPenalty}级` : ''}
                 {roundResult.endReason ? `；${roundResult.endReason}` : ''}
               </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <button
                   className="btn-primary"
                   onClick={() => {
                     setRoundResult(null);
+                    setReplayOpen(false);
                     const socket = getSocket();
                     socket?.emit('start_next_round', { roomId });
                   }}
@@ -630,7 +635,31 @@ export default function GameRoom() {
                 >
                   退出房间
                 </button>
+                <button
+                  className="btn-secondary"
+                  onClick={() => setReplayOpen(value => !value)}
+                  aria-expanded={replayOpen}
+                  style={{ padding: '10px 24px', fontSize: 15 }}
+                >
+                  {replayOpen ? '收起复盘' : '复盘'}
+                </button>
               </div>
+              {replayOpen && (
+                <div style={{
+                  marginTop: 16,
+                  maxHeight: '40dvh',
+                  overflowY: 'auto',
+                  textAlign: 'left',
+                  fontSize: 14,
+                  lineHeight: 1.8,
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                }}>
+                  {roundResult.replay?.length
+                    ? roundResult.replay.join('\n')
+                    : '本局暂无复盘记录'}
+                </div>
+              )}
             </div>
           </div>
         )}
