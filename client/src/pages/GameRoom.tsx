@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
-import { GameState, Card, CardPattern, PlayerInfo as PlayerInfoType, RoundResult, SpectatorHands } from '../sharedTypes';
+import { GameState, GamePhase, Card, CardPattern, PlayerInfo as PlayerInfoType, RoundResult, SpectatorHands } from '../sharedTypes';
 import HandCards from '../components/HandCards';
 import PlayerInfoComponent from '../components/PlayerInfo';
 import PlayArea, { PlayerAction } from '../components/PlayArea';
@@ -31,6 +31,24 @@ export default function GameRoom() {
   const [tributeNotice, setTributeNotice] = useState('');
   const [declarations, setDeclarations] = useState<CardPattern[]>([]);
   const [spectatorDialogOpen, setSpectatorDialogOpen] = useState(false);
+  const [actionSecondsLeft, setActionSecondsLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    const deadline = gameState?.actionDeadline;
+    const hasTimedAction = gameState?.phase === GamePhase.Playing
+      || gameState?.phase === GamePhase.ReturnTribute;
+    if (!deadline || !hasTimedAction) {
+      setActionSecondsLeft(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      setActionSecondsLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    };
+    updateCountdown();
+    const timer = window.setInterval(updateCountdown, 250);
+    return () => window.clearInterval(timer);
+  }, [gameState?.actionDeadline, gameState?.phase]);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -298,6 +316,11 @@ export default function GameRoom() {
             <strong>{isSpectator ? teamBLevel : opponentLevel}<em>级</em></strong>
           </div>
           <div className="duel-score-meta">第 {gameState?.roundNumber || 0} 局 · {isSpectator ? `队伍 ${leadingTeam === 0 ? 'A' : 'B'} 在台` : `${ownIsLeading ? '我方' : '对方'}在台`}</div>
+          {actionSecondsLeft !== null && (
+            <div className="duel-turn-countdown" aria-label={`本回合剩余 ${actionSecondsLeft} 秒`}>
+              倒计时 <strong>{actionSecondsLeft}</strong> 秒
+            </div>
+          )}
         </div>
         <div className="game-top-actions">
           {!isSpectator && gameState?.phase !== 'round_end' && (
@@ -367,8 +390,8 @@ export default function GameRoom() {
           )}
         </div>
 
-        {/* Portrait rows follow: partner, left opponent, right opponent, self. */}
-        {([2, 3, 1] as const).map(positionIndex => {
+        {/* Portrait rows follow: left opponent, partner, right opponent, self. */}
+        {([3, 2, 1] as const).map(positionIndex => {
           const player = getPlayerForPosition(positionIndex);
           const position = positionIndex === 1 ? 'right' : positionIndex === 2 ? 'top' : 'left';
           return player ? (

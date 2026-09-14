@@ -129,6 +129,20 @@ body {
   text-align: center;
 }
 
+.duel-turn-countdown {
+  grid-column: 1 / -1;
+  color: rgba(255,255,255,.76);
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.duel-turn-countdown strong {
+  color: #ffd43b;
+  font-size: 13px;
+}
+
 input, button {
   font-family: inherit;
 }
@@ -1475,15 +1489,15 @@ button:disabled { cursor: default; }
 
 /* Keep all four portrait play rows above the hand. */
 @media (max-width: 600px) and (min-height: 700px) and (orientation: portrait) {
-  .played-zone--top { top: clamp(108px, 14%, 126px); }
-  .played-zone--left { top: calc(clamp(108px, 14%, 126px) + 72px); }
+  .played-zone--left { top: clamp(108px, 14%, 126px); }
+  .played-zone--top { top: calc(clamp(108px, 14%, 126px) + 72px); }
   .played-zone--right { top: calc(clamp(108px, 14%, 126px) + 144px); }
   .game-center-play-area { top: calc(clamp(108px, 14%, 126px) + 216px); }
 }
 
 @media (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
-  .played-zone--top { top: 88px; }
-  .played-zone--left { top: 126px; }
+  .played-zone--left { top: 88px; }
+  .played-zone--top { top: 126px; }
   .played-zone--right { top: 164px; }
   .game-center-play-area { top: 202px; }
 }
