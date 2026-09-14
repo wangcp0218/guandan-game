@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
-import { findBestPlay, generateLegalPlays, isForcedAiDecision, roundStake, scorePlay } from './ai';
+import {
+  compressCandidatesForModel, findBestPlay, generateLegalPlays,
+  isForcedAiDecision, roundStake, scorePlay,
+} from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
 import type { AiDecisionContext } from './llmAi';
@@ -136,6 +139,24 @@ test('generator keeps all physical pair choices instead of only the first pair',
   ]);
   const pairs = generateLegalPlays(hand, Rank.Two).filter(play => play.type === PatternType.Pair);
   assert.equal(pairs.length, 6);
+});
+
+test('model candidates merge equivalent physical choices without losing declared strategies', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Nine], [Suit.Heart, Rank.Nine],
+    [Suit.Club, Rank.Nine], [Suit.Diamond, Rank.Nine],
+    [Suit.Spade, Rank.Ace], [Suit.Heart, Rank.Ace],
+  ]);
+  const legal = generateLegalPlays(hand, Rank.Two);
+  const compressed = compressCandidatesForModel(legal, Rank.Two);
+  const ninePairs = compressed.plays
+    .map((play, index) => ({ play, count: compressed.equivalentCounts[index] }))
+    .filter(item => item.play.type === PatternType.Pair && item.play.rank === Rank.Nine);
+
+  assert.equal(ninePairs.length, 1);
+  assert.equal(ninePairs[0].count, 6);
+  assert.ok(compressed.plays.some(play => play.type === PatternType.Pair && play.rank === Rank.Ace));
+  assert.ok(compressed.plays.some(play => play.type === PatternType.Bomb4 && play.rank === Rank.Nine));
 });
 
 test('generator covers wildcard bomb, steel plate and straight flush plus king bomb', () => {

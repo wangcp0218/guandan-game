@@ -1,4 +1,4 @@
-import { AiModelSelection, AiProvider, Card, CardPattern, PatternType } from '../../../shared/types';
+import { AiModelSelection, AiProvider, Card, CardPattern, PatternType, Rank } from '../../../shared/types';
 import { cardDisplayName, sortCards } from './card';
 import { analysisKey, buildPublicKnowledge } from './aiAnalysis';
 import type { DecisionAnalysis } from './aiAnalysis';
@@ -160,6 +160,20 @@ function describeHistory(context?: AiDecisionContext): string {
   ).join('\n');
 }
 
+function describeActionCost(option: CardPattern, hand: Card[], currentLevel: number) {
+  const held = new Map<number, number>();
+  const used = new Map<number, number>();
+  for (const card of hand) held.set(card.rank, (held.get(card.rank) || 0) + 1);
+  for (const card of option.cards) used.set(card.rank, (used.get(card.rank) || 0) + 1);
+  return {
+    remaining_cards: hand.length - option.cards.length,
+    uses_wildcards: option.cards.filter(card => card.rank === currentLevel && card.suit === 'H').length,
+    uses_jokers: option.cards.filter(card => card.rank >= Rank.SmallJoker).length,
+    breaks_bomb: [...used].some(([rank, count]) => (held.get(rank) || 0) >= 4 && count < (held.get(rank) || 0)),
+    splits_group: [...used].some(([rank, count]) => (held.get(rank) || 0) > count),
+  };
+}
+
 function parseModelResponse(content: string): any {
   try {
     return JSON.parse(content);
@@ -182,6 +196,9 @@ export async function llmFindBestPlay(
   context?: AiDecisionContext,
   selection: AiModelSelection = DEFAULT_AI_SELECTION,
   analysis?: DecisionAnalysis,
+  equivalentCounts: number[] = [],
+  handCombinations: CardPattern[] = legalPlays,
+  handCombinationEquivalentCounts: number[] = equivalentCounts,
 ): Promise<CardPattern | null | undefined> {
   const normalizedSelection = normalizeAiSelection(selection.provider, selection.model);
   const providerConfig = getProviderConfig(normalizedSelection.provider);
@@ -191,7 +208,7 @@ export async function llmFindBestPlay(
   const systemPrompt = `你是一名高水平竞技掼蛋选手，熟悉牌型、进贡还贡、逢人配、升级、双人协作、记牌、牌权控制和残局计算。你的任务不是单纯尽快出完，而是与对家合作，最大化本方双上、升级并避免对方双上的概率。
 
 【规则与执行边界】
-使用两副牌、四人两队、对家为队友。牌型包括单张、对子、三张、三带二、固定5张顺子、固定3连对、固定2连三钢板、炸弹、同花顺和四王炸。红桃级牌是逢人配，可代替除大小王外的任意牌。牌力为大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹先比张数再比点数，同花顺大于五炸小于六炸，四王炸最大。平台传入的规则与合法动作集合拥有最高优先级。你不判断合法性，只能选择legal_actions中的action_id，绝不能创造动作或修改动作里的牌。
+使用两副牌、四人两队、对家为队友。牌型包括单张、对子、三张、三带二、固定5张顺子、固定3连对、固定2连三钢板、炸弹、同花顺和四王炸。红桃级牌是逢人配，可代替除大小王外的任意牌。牌力为大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹先比张数再比点数，同花顺大于五炸小于六炸，四王炸最大。平台传入的规则与合法动作集合拥有最高优先级。hand_combinations覆盖自己手牌可组成的全部战略性牌型，用于规划后续，但不一定能在当前桌面直接打出；legal_actions才是当前允许选择的动作。两者采用紧凑数组，字段顺序分别由hand_combination_schema和legal_action_schema定义；仅将牌型、点数和配牌声明等价的实体牌选择合并为一个代表动作，equivalent_variants表示合并数量。你不判断合法性，只能选择legal_actions中的action_id，绝不能从hand_combinations直接出牌、创造动作或修改动作里的牌。
 
 【信息边界】
 只能使用本轮输入中的自己手牌、桌面牌、公开出牌推算的余牌数、公开行动与进贡还贡、当前级牌和合法动作。未见牌池只表示其余玩家合计可能持有的牌，不表示某个玩家的确定手牌。不得假设知道其他玩家实际手牌，不得把推断当成事实；过牌不代表没有能接的牌。remainingTurns是只考虑自己手牌、无对手干扰时的拆分手数，exact=false时只是可行上界。模拟胜率来自少量随机分配的未知手牌和规则AI续打，不是保证；样本少于4时不要据此改变策略，样本相近时优先手牌结构与本地排序。未提供完整公开牌历史时，不得声称完成了精确记牌。
@@ -237,6 +254,9 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
     ? '残局'
     : hand.length >= 20 ? '开局' : hand.length >= 10 ? '中盘' : '收官';
   const knowledge = context ? buildPublicKnowledge(hand, context) : null;
+  const representedCounts = legalPlays.map((_, index) => equivalentCounts[index] || 1);
+  const representedHandCombinationCounts = handCombinations
+    .map((_, index) => handCombinationEquivalentCounts[index] || 1);
   const input = {
     seat: context?.selfSeatIndex ?? '未知',
     partner_seat: context?.partnerSeatIndex ?? '未知',
@@ -270,6 +290,12 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
         seat, cards: describeHand(cards, currentLevel),
       })),
     } : undefined,
+    played_by_seat: context?.players.map(player => ({
+      seat: player.seatIndex,
+      cards: describeHand((context.actionHistory || [])
+        .filter(action => action.seatIndex === player.seatIndex && action.action === 'play')
+        .flatMap(action => action.pattern?.cards || []), currentLevel),
+    })) || [],
     tribute_history: context?.publicTransfers?.map(transfer => ({
       from_seat: transfer.fromSeat, to_seat: transfer.toSeat, card: cardDisplayName(transfer.card),
     })),
@@ -279,14 +305,40 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
       caveat: '手数不含对手干扰；抽样模拟不是校准后的真实胜率',
     } : undefined,
     action_history: describeHistory(context).split('\n'),
-    legal_actions: legalPlays.map((option, actionId) => ({
-      action_id: actionId,
-      type: PATTERN_NAMES[option.type],
-      cards: option.cards.map(card => cardDisplayName(card)),
-      rank: option.rank,
-      length: option.length,
-      analysis: analysis?.candidates[analysisKey(option)],
-    })),
+    candidate_coverage: {
+      model_actions: legalPlays.length,
+      represented_equivalent_actions: representedCounts.reduce((sum, count) => sum + count, 0),
+      policy: '全量战略组合；等价实体选择合并，由本地评分保留最少损伤的代表牌',
+    },
+    hand_combination_schema: [
+      'combination_id', 'type', 'cards', 'rank', 'length', 'equivalent_variants',
+      'remaining_cards', 'uses_wildcards', 'uses_jokers', 'breaks_bomb', 'splits_group',
+    ],
+    hand_combinations: isFreePlay ? {
+      same_as_legal_actions: true,
+    } : handCombinations.map((option, combinationId) => {
+      const cost = describeActionCost(option, hand, currentLevel);
+      return [
+        combinationId, PATTERN_NAMES[option.type],
+        option.cards.map(card => cardDisplayName(card)).join(' '), option.rank, option.length,
+        representedHandCombinationCounts[combinationId], cost.remaining_cards,
+        cost.uses_wildcards, cost.uses_jokers, cost.breaks_bomb, cost.splits_group,
+      ];
+    }),
+    legal_action_schema: [
+      'action_id', 'type', 'cards', 'rank', 'length', 'equivalent_variants',
+      'remaining_cards', 'uses_wildcards', 'uses_jokers', 'breaks_bomb', 'splits_group', 'analysis',
+    ],
+    legal_actions: legalPlays.map((option, actionId) => {
+      const cost = describeActionCost(option, hand, currentLevel);
+      return [
+        actionId, PATTERN_NAMES[option.type],
+        option.cards.map(card => cardDisplayName(card)).join(' '), option.rank, option.length,
+        representedCounts[actionId], cost.remaining_cards, cost.uses_wildcards,
+        cost.uses_jokers, cost.breaks_bomb, cost.splits_group,
+        analysis?.candidates[analysisKey(option)],
+      ];
+    }),
   };
   const userPrompt = `请根据以下牌桌输入选择动作：\n${JSON.stringify(input)}\n
 输出格式：{"action_id":数字或"PASS","cards":["仅用于复述所选动作"],"intent":"走牌/控权/送队友/阻击对手/整理牌型/试探/保留实力","confidence":0.00,"brief_reason":"不超过80个汉字","risk":"主要风险"}。只有跟牌时可选择PASS。`;

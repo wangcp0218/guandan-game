@@ -9,8 +9,6 @@ import type { AiDecisionContext } from './llmAi';
 import { analyzeDecision, analysisKey, buildPublicKnowledge } from './aiAnalysis';
 import type { DecisionAnalysis } from './aiAnalysis';
 
-const MAX_LLM_CANDIDATES = 160;
-
 function getRankCounts(hand: Card[]): Map<number, Card[]> {
   const map = new Map<number, Card[]>();
   for (const c of hand) {
@@ -394,6 +392,49 @@ export function stratifyCandidates(plays: CardPattern[], hand: Card[], level: nu
   return result;
 }
 
+export interface CompressedAiCandidates {
+  plays: CardPattern[];
+  /** Number of equivalent physical choices represented by each model action. */
+  equivalentCounts: number[];
+}
+
+/**
+ * Preserve every distinct declared strategy while merging choices which differ
+ * only by equivalent physical cards. Because input is already Base7 ordered,
+ * the retained representative is the least damaging concrete realization.
+ */
+export function compressCandidatesForModel(
+  ordered: CardPattern[],
+  currentLevel: number,
+): CompressedAiCandidates {
+  const groups = new Map<string, { play: CardPattern; count: number }>();
+  for (const play of ordered) {
+    const substitutions = new Map((play.substitutions || []).map(card => [card.id, card]));
+    const resolvedCounts = new Map<number, number>();
+    for (const card of play.cards) {
+      const resolved = substitutions.get(card.id) || card;
+      resolvedCounts.set(resolved.rank, (resolvedCounts.get(resolved.rank) || 0) + 1);
+    }
+    const declaredRanks = [...resolvedCounts]
+      .sort(([left], [right]) => left - right)
+      .map(([rank, count]) => `${rank}x${count}`)
+      .join(',');
+    const wildcardCount = play.cards.filter(card => isWildCard(card, currentLevel)).length;
+    const flushSuit = play.type === PatternType.FlushStraight
+      ? (substitutions.get(play.cards[0]?.id) || play.cards[0])?.suit || ''
+      : '';
+    const key = `${play.type}:${play.rank}:${play.length}:${declaredRanks}:w${wildcardCount}:s${flushSuit}`;
+    const existing = groups.get(key);
+    if (existing) existing.count++;
+    else groups.set(key, { play, count: 1 });
+  }
+  const values = [...groups.values()];
+  return {
+    plays: values.map(value => value.play),
+    equivalentCounts: values.map(value => value.count),
+  };
+}
+
 function orderCandidates(
   plays: CardPattern[],
   hand: Card[],
@@ -634,20 +675,31 @@ export async function findSmartPlay(
       ruleResult, legalPlays, hand, lastPattern, isFreePlay, currentLevel, context,
     );
   }
-  // The hint system keeps the exhaustive list. The LLM receives the strongest
-  // Base7-ranked slice so a combinatorial hand cannot overflow its context.
+  // The hint system keeps every physical action. The model sees every distinct
+  // declared strategy, with equivalent deck-copy/suit choices compressed.
   const completeLegalPlays = legalPlays;
-  legalPlays = retainNextPlayerReportMaximum(stratifyCandidates(
+  const compressed = compressCandidatesForModel(
     orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context),
-    hand,
     currentLevel,
-    MAX_LLM_CANDIDATES,
-  ), completeLegalPlays, currentLevel, context);
+  );
+  legalPlays = retainNextPlayerReportMaximum(
+    compressed.plays, completeLegalPlays, currentLevel, context,
+  );
+  let equivalentCounts = legalPlays.map(play => {
+    const index = compressed.plays.indexOf(play);
+    return index >= 0 ? compressed.equivalentCounts[index] : 1;
+  });
+  const equivalentCountByPlay = new Map(legalPlays.map((play, index) => [play, equivalentCounts[index]]));
+  const handCombinations = isFreePlay ? compressed : compressCandidatesForModel(
+    orderCandidates(dedupeStrategicPlays(allPlays), hand, currentLevel, true, context),
+    currentLevel,
+  );
   const analysis = await analyzeDecision(
     hand, allPlays, legalPlays, isFreePlay ? null : lastPattern,
     currentLevel, context, findBestPlay,
   );
   legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context, analysis);
+  equivalentCounts = legalPlays.map(play => equivalentCountByPlay.get(play) || 1);
   let fallbackResult = (isFreePlay || ruleResult) ? legalPlays[0] || ruleResult : null;
   // Do not let one lucky hidden-hand sample override the baseline. Compare
   // paired, completed simulations only, retaining baseline preference on ties.
@@ -673,6 +725,9 @@ export async function findSmartPlay(
       context,
       selection,
       analysis,
+      equivalentCounts,
+      handCombinations.plays,
+      handCombinations.equivalentCounts,
     );
     // undefined means the model was unavailable/invalid; null is an intentional pass.
     if (llmResult !== undefined) return enforceTeamStrategy(

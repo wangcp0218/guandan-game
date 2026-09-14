@@ -244,8 +244,15 @@ test('LLM input contains complete public memory and local analysis, not sampled 
     assert.equal(input.action_history.length, 104);
     assert.ok(input.public_memory.played_cards);
     assert.ok(input.public_memory.unseen_cards);
+    assert.equal(input.played_by_seat.length, 4);
+    assert.ok(input.played_by_seat.every((player: any) => player.cards.length > 0));
     assert.deepEqual(input.local_analysis.hand_turns, { turns: 1, exact: true });
-    assert.equal(input.legal_actions[0].analysis.remainingTurns.turns, 0);
+    assert.equal(input.legal_action_schema[11], 'analysis');
+    assert.equal(input.legal_actions[0][11].remainingTurns.turns, 0);
+    assert.equal(input.candidate_coverage.model_actions, plays.length);
+    assert.equal(input.candidate_coverage.represented_equivalent_actions, plays.length);
+    assert.equal(input.hand_combinations.same_as_legal_actions, true);
+    assert.equal(input.legal_actions[0][5], 1);
     assert.ok(input.public_memory.publicly_known_cards.every((p: any) => p.cards === ''));
     assert.equal(input.sampled_hands, undefined);
   } finally {
