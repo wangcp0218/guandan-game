@@ -39,17 +39,17 @@ Uses JSON files at `data/users.json` and `data/records.json` (no native modules 
 | `server/src/engine/patterns.ts` | 18 pattern types, identification, 逢人配(wild card) substitution |
 | `server/src/engine/compare.ts` | Pattern comparison, bomb ranking |
 | `server/src/engine/rules.ts` | Level system, tribute, partner logic |
-| `server/src/engine/ai.ts` | `findBestPlay` (sync rules, used), `findSmartPlay` (async LLM, unused) |
-| `server/src/engine/llmAi.ts` | DeepSeek API integration (v4-pro, currently not in gameplay path) |
+| `server/src/engine/ai.ts` | `findBestPlay` (sync rules, default path), `findSmartPlay` (async LLM, opt-in per room) |
+| `server/src/engine/llmAi.ts` | DeepSeek API integration, only used when the room opts into `aiUseLLM` |
 
 ### AI flow (critical)
 
-`findBestPlay` is the sync rule-based AI used in production. `findSmartPlay` is async and calls LLM via DeepSeek — currently **not wired** into `GameRoom.aiPlay()` because it adds latency. The LLM module remains as optional enhancement.
+`findBestPlay` is the sync rule-based AI and the **default path** in `GameRoom.aiPlay()` (`aiUseLLM === false`): instant, deterministic, no external dependency. `findSmartPlay` (async; DeepSeek via `llmAi.ts`) runs only for rooms created with the 智能 AI toggle (`aiUseLLM === true`); it gates itself further by skipping the simulation budget and model for trivial decisions (≤4 legal plays). AI turns do **not** schedule the 30s forced timeout (see `startTurn`), so a slow LLM response can never force the AI to pass and lose its trick.
 
 ### GameRoom turn flow (where bugs hide)
 
 ```
-startTurn → (AI: setTimeout 500ms → aiPlay → findBestPlay → playCards)
+startTurn → (AI: setTimeout 500ms → aiPlay → findBestPlay | findSmartPlay → playCards)
            → (human: wait 30s timeout)
 
 playCards → advanceTurn → broadcastState → startTurn()  ← MUST call startTurn!

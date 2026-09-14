@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
-import { findBestPlay, generateLegalPlays } from './ai';
+import { findBestPlay, generateLegalPlays, roundStake, scorePlay } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
 import type { AiDecisionContext } from './llmAi';
@@ -203,4 +203,86 @@ test('Base7-style fallback does not overtake partner unless it can finish', () =
     recentActions: [],
   };
   assert.equal(findBestPlay(hand, last, false, Rank.Two, context), null);
+});
+
+function fourPlayerContext(overrides: Partial<AiDecisionContext>): AiDecisionContext {
+  return {
+    selfSeatIndex: 0,
+    partnerSeatIndex: 2,
+    lastPlayPlayerIndex: 0,
+    roundNumber: 1,
+    teamLevels: [Rank.Two, Rank.Two],
+    leadingTeam: 0,
+    players: [
+      { seatIndex: 0, cardCount: 9, finishRank: null, relation: 'self' },
+      { seatIndex: 1, cardCount: 8, finishRank: null, relation: 'opponent' },
+      { seatIndex: 2, cardCount: 12, finishRank: null, relation: 'partner' },
+      { seatIndex: 3, cardCount: 8, finishRank: null, relation: 'opponent' },
+    ],
+    recentActions: [],
+    ...overrides,
+  };
+}
+
+test('roundStake follows the match score: trailing fights harder, a big lead conserves', () => {
+  assert.equal(roundStake(undefined), 1);
+  const neutral = roundStake(fourPlayerContext({}));
+  assert.ok(neutral >= 1 && neutral < 1.1, 'round 1 is near neutral');
+  const trailing = fourPlayerContext({ teamLevels: [Rank.Two, Rank.Ten], leadingTeam: 1 });
+  const winning = fourPlayerContext({ teamLevels: [Rank.Ten, Rank.Two], leadingTeam: 0 });
+  assert.ok(roundStake(trailing) > 1.1, 'trailing by several levels escalates urgency');
+  assert.ok(roundStake(winning) < 1, 'a comfortable lead plays conservatively');
+  const defending = fourPlayerContext({ teamLevels: [Rank.Queen, Rank.King], leadingTeam: 0 });
+  assert.ok(roundStake(defending) > 1, 'defending the table against a near-Ace opponent escalates');
+  assert.ok(roundStake(fourPlayerContext({ roundNumber: 5 })) > neutral,
+    'later rounds of a finite match escalate slightly');
+});
+
+test('scorePlay prices bombs cheaper when the team trails', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Club, Rank.Three], [Suit.Diamond, Rank.Three],
+    [Suit.Spade, Rank.Five],
+  ]);
+  const bomb = generateLegalPlays(hand, Rank.Two).find(play =>
+    play.type === PatternType.Bomb4 && play.cards.length === 4)!;
+  const trailing = fourPlayerContext({ teamLevels: [Rank.Two, Rank.Ten], leadingTeam: 1 });
+  const winning = fourPlayerContext({ teamLevels: [Rank.Ten, Rank.Two], leadingTeam: 0 });
+  assert.ok(scorePlay(bomb, hand, Rank.Two, true, trailing)
+    > scorePlay(bomb, hand, Rank.Two, true, winning));
+});
+
+test('a trailing team under threat spends the bomb; a calm lead preserves structure', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Club, Rank.Three], [Suit.Diamond, Rank.Three],
+    [Suit.Spade, Rank.Eight], [Suit.Heart, Rank.Nine],
+    [Suit.Club, Rank.Ten], [Suit.Diamond, Rank.Jack], [Suit.Spade, Rank.Queen],
+  ]);
+  // Opponent at 5 cards is an urgent threat; trailing by levels: spend the bomb.
+  const underThreat = fourPlayerContext({
+    teamLevels: [Rank.Two, Rank.Ten], leadingTeam: 1,
+    players: [
+      { seatIndex: 0, cardCount: 9, finishRank: null, relation: 'self' },
+      { seatIndex: 1, cardCount: 5, finishRank: null, relation: 'opponent' },
+      { seatIndex: 2, cardCount: 7, finishRank: null, relation: 'partner' },
+      { seatIndex: 3, cardCount: 8, finishRank: null, relation: 'opponent' },
+    ],
+  });
+  const trailingPlay = findBestPlay(hand, null, true, Rank.Two, underThreat);
+  assert.equal(trailingPlay?.type, PatternType.Bomb4);
+
+  // No immediate threat and a clear lead: keep the bomb, lead the straight.
+  const calm = fourPlayerContext({
+    teamLevels: [Rank.Ten, Rank.Two], leadingTeam: 0,
+    players: [
+      { seatIndex: 0, cardCount: 9, finishRank: null, relation: 'self' },
+      { seatIndex: 1, cardCount: 6, finishRank: null, relation: 'opponent' },
+      { seatIndex: 2, cardCount: 7, finishRank: null, relation: 'partner' },
+      { seatIndex: 3, cardCount: 8, finishRank: null, relation: 'opponent' },
+    ],
+  });
+  const calmPlay = findBestPlay(hand, null, true, Rank.Two, calm);
+  assert.notEqual(calmPlay?.type, PatternType.Bomb4);
+  assert.equal(calmPlay?.type, PatternType.Straight);
 });

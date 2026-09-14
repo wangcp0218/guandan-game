@@ -258,8 +258,29 @@ function applyStrategicGuards(
   return guarded;
 }
 
+/**
+ * Round-level urgency multiplier, 1.0 = neutral. Above 1 the AI fights harder
+ * this hand (trailing on levels, defending the table against a near-Ace
+ * opponent, later rounds of a finite match); below 1 a comfortable lead plays
+ * conservatively. Drives bomb willingness and blocking urgency so decisions
+ * follow the match score, not just the cards. Uses only public context.
+ */
+export function roundStake(context?: AiDecisionContext): number {
+  if (!context) return 1;
+  const ourTeam = context.selfSeatIndex % 2;
+  const gap = context.teamLevels[ourTeam] - context.teamLevels[1 - ourTeam];
+  const leading = context.leadingTeam === ourTeam;
+  const opponentNearAce = context.teamLevels[1 - ourTeam] >= Rank.Ace - 2;
+  let stake = 1;
+  if (gap < 0) stake += Math.min(3, -gap) * 0.12;
+  else if (leading && gap >= 2) stake -= Math.min(2, gap) * 0.05;
+  if (leading && opponentNearAce) stake += 0.15;
+  stake += Math.min(4, Math.max(0, context.roundNumber - 1)) * 0.02;
+  return stake;
+}
+
 /** Base7-inspired value: prefer shedding groups while preserving controls and structures. */
-function scorePlay(
+export function scorePlay(
   play: CardPattern,
   hand: Card[],
   currentLevel: number,
@@ -279,6 +300,7 @@ function scorePlay(
 
   const sequence = [PatternType.Straight, PatternType.ConsecutivePair, PatternType.Plane,
     PatternType.FlushStraight].includes(play.type);
+  const stake = roundStake(context);
   let score = play.cards.length * 120 - (sequence ? play.rank : effectiveRank(play.rank, currentLevel)) * 6;
   if (play.cards.length > 1) score += 100;
   if ([PatternType.Straight, PatternType.TriplePair, PatternType.ConsecutivePair, PatternType.Plane].includes(play.type)) {
@@ -304,24 +326,37 @@ function scorePlay(
     // Taking the trick with a bomb has the same immediate benefit regardless
     // of size. Cancel the generic shedding bonus and charge for bomb strength;
     // whole-hand finishes still take priority above. Keep leading costs finite
-    // so intact bombs beat dismantling the only remaining structures.
+    // so intact bombs beat dismantling the only remaining structures. The cost
+    // scales inversely with the round stake: a trailing team spends bombs to
+    // take control, a leading team hoards them for defense.
     const tier = play.type === PatternType.KingBomb ? 8
       : play.type === PatternType.FlushStraight ? 1.5 : play.cards.length - 4;
-    score -= play.cards.length * 120 + 100 + tier * 140;
+    score -= (play.cards.length * 120 + 100 + tier * 140) * (2 - stake);
     if (partnerLed) score -= 20_000;
-    if (opponentLed && lastPlayer && lastPlayer.cardCount <= 14) score += 650;
-    if (urgentOpponent) score += 600;
+    if (opponentLed && lastPlayer && lastPlayer.cardCount <= 14) score += 650 * stake;
+    if (urgentOpponent) score += 600 * stake;
   }
 
-  if (!isFreePlay && !isBombPattern(play)) score += 350;
+  if (!isFreePlay && !isBombPattern(play)) score += 350 * stake;
   if (partnerLed) score -= 15_000;
 
   if (isFreePlay && context) {
     const partner = context.players.find(player => player.relation === 'partner' && player.finishRank === null);
     const opponents = context.players.filter(player => player.relation === 'opponent' && player.finishRank === null);
-    if (partner?.cardCount === play.cards.length) score += 900;
+    if (partner?.cardCount === play.cards.length) score += 900 * stake;
     if (opponents.some(player => player.cardCount === play.cards.length)) score -= 350;
   }
+
+  // Round-outcome shaping from finish ranks: partner already first means our
+  // own finish is worth a 双上 (+3), so shed aggressively; an opponent already
+  // first means the other opponent's rank decides the upgrade we concede, so
+  // block their tricks harder.
+  const partnerHead = context?.players.some(player =>
+    player.relation === 'partner' && player.finishRank === 1);
+  const opponentHead = context?.players.some(player =>
+    player.relation === 'opponent' && player.finishRank === 1);
+  if (partnerHead && !isBombPattern(play)) score += play.cards.length * 25;
+  if (opponentHead && lastPlayer?.relation === 'opponent') score += 400 * stake;
 
   // Prefer the weakest physical realization when declarations are equivalent.
   score -= play.cards.reduce((sum, card) => sum + effectiveRank(card.rank, currentLevel), 0) / 20;
@@ -522,6 +557,14 @@ export async function findSmartPlay(
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
+  // Complexity gate: with a handful of choices the rule ranking is decisive;
+  // skip the simulation budget and the external model entirely. `ruleResult`
+  // already picked the best of the full legal list.
+  if (legalPlays.length <= 4) {
+    return enforceTeamStrategy(
+      ruleResult, legalPlays, hand, lastPattern, isFreePlay, currentLevel, context,
+    );
+  }
   // The hint system keeps the exhaustive list. The LLM receives the strongest
   // Base7-ranked slice so a combinatorial hand cannot overflow its context.
   legalPlays = stratifyCandidates(

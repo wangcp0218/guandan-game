@@ -121,13 +121,14 @@ export default function Lobby() {
   const [maxRounds, setMaxRounds] = useState(0);
   const [maxMinutes, setMaxMinutes] = useState(0);
   const [tripleDoublePenalty, setTripleDoublePenalty] = useState(false);
+  const [aiUseLLM, setAiUseLLM] = useState(false);
 
   const createRoom = () => {
     if (!roomName.trim()) {
       setInfo('请输入房间名称');
       return;
     }
-    if (!aiModel) {
+    if (aiUseLLM && !aiModel) {
       setInfo('请先选择 AI 模型');
       return;
     }
@@ -138,6 +139,7 @@ export default function Lobby() {
       aiProvider,
       aiModel,
       maxRounds, maxMinutes, tripleDoublePenalty,
+      aiUseLLM,
     });
   };
 
@@ -246,6 +248,7 @@ export default function Lobby() {
                     <button type="button" className="btn-secondary" onClick={() => loadAiModels(aiProvider)}>重试</button>
                   </div>
                 )}
+                <label style={styles.fieldLabel}><span><input type="checkbox" checked={aiUseLLM} onChange={e => setAiUseLLM(e.target.checked)} />智能 AI（调用大模型决策，每回合较慢；默认关闭使用本地规则 AI）</span></label>
                 {info && <p style={styles.error}>{info}</p>}
                 <div style={styles.modalBtns}>
                   <button className="btn-primary" onClick={createRoom}>创建</button>

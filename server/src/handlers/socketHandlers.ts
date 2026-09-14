@@ -97,17 +97,18 @@ export function setupSocketHandlers(io: Server) {
       }
     });
 
-    socket.on('create_room', (data: { name: string; password?: string; aiProvider?: AiProvider; aiModel?: string; maxRounds?: number; maxMinutes?: number; tripleDoublePenalty?: boolean }) => {
+    socket.on('create_room', (data: { name: string; password?: string; aiProvider?: AiProvider; aiModel?: string; maxRounds?: number; maxMinutes?: number; tripleDoublePenalty?: boolean; aiUseLLM?: boolean }) => {
       if (!socket.userId) {
         socket.emit('error', { message: '请先登录' });
         return;
       }
       const aiModelSelection = normalizeAiSelection(data.aiProvider, data.aiModel);
-      if (!aiModelSelection.model) {
+      // A model is only required when the room actually uses LLM decisions.
+      if (data.aiUseLLM === true && !aiModelSelection.model) {
         socket.emit('error', { message: '请选择 AI 模型' });
         return;
       }
-      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', aiModelSelection);
+      const room = roomManager.createRoom(data.name, socket.userId, data.password || '', aiModelSelection, data.aiUseLLM === true);
       const bounded = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10000 ? value : 0;
       room.competition = { maxRounds: bounded(data.maxRounds), maxMinutes: bounded(data.maxMinutes), tripleDoublePenalty: data.tripleDoublePenalty === true };
       socket.emit('room_created', room.toRoomInfo());

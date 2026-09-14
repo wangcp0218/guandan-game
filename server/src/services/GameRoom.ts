@@ -40,17 +40,22 @@ export class GameRoom {
   private matchStartedAt = 0;
   private consecutiveDoubles: [number, number] = [0, 0];
   aiModelSelection: AiModelSelection;
+  aiUseLLM: boolean;
 
   constructor(
     name: string,
     ownerId: string,
     password: string = '',
     aiModelSelection: AiModelSelection = DEFAULT_AI_SELECTION,
+    aiUseLLM: boolean = false,
   ) {
     this.id = uuidv4();
     this.name = name;
     this.password = password;
     this.aiModelSelection = aiModelSelection;
+    // The rule-based AI (findBestPlay) is the default path: instant, zero
+    // external dependency. LLM decisions are an explicit per-room opt-in.
+    this.aiUseLLM = aiUseLLM;
     this.ownerId = ownerId;
   }
 
@@ -568,7 +573,9 @@ export class GameRoom {
     this.state.actionDeadline = Date.now() + TURN_TIMEOUT;
     this.broadcastState();
     if (currentPlayer.isAI) {
-      this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
+      // The AI always resolves to a play or pass (aiPlay never hangs), so a
+      // forced timeout could only race a slow LLM response and cost the AI its
+      // trick. No timer is scheduled for AI turns.
       setTimeout(() => this.aiPlay(), 500);
     } else {
       this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
@@ -923,14 +930,26 @@ export class GameRoom {
       const hand = this.hands.get(player.id) || [];
 
       const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
-      const pattern = await findSmartPlay(
-        hand,
-        this.state.lastPlay,
-        isFreePlay,
-        this.state.currentLevel,
-        this.getAiDecisionContext(playerIdx),
-        this.aiModelSelection,
-      );
+      const context = this.getAiDecisionContext(playerIdx);
+      // Rule-based AI is the default path: instant, deterministic, no external
+      // dependency. The LLM path runs only when the room explicitly opted in
+      // at creation and the decision is complex enough to warrant it.
+      const pattern = this.aiUseLLM
+        ? await findSmartPlay(
+            hand,
+            this.state.lastPlay,
+            isFreePlay,
+            this.state.currentLevel,
+            context,
+            this.aiModelSelection,
+          )
+        : findBestPlay(
+            hand,
+            this.state.lastPlay,
+            isFreePlay,
+            this.state.currentLevel,
+            context,
+          );
 
       // Ignore a delayed model response if the round or active player changed.
       if (
