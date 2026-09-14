@@ -117,6 +117,47 @@ function bitCount(mask: number): number {
   return count;
 }
 
+/** Exhaust physical deals only when the entire constrained space fits the cap.
+ * Complete deal coverage is NOT minimax: continuation still uses a policy. */
+export function enumerateHiddenHands(hand: Card[], context: AiDecisionContext,
+  knowledge: PublicKnowledge, cap = 256): Card[][][] | null {
+  if (!sampleHiddenHands(hand, context, knowledge, () => 0)) return null;
+  const hands = knowledge.knownBySeat.map(cards => [...cards]);
+  hands[context.selfSeatIndex] = [...hand];
+  const known = new Set(knowledge.knownBySeat.flat().map(card => card.id));
+  const pool = knowledge.unseen.filter(card => !known.has(card.id));
+  const seats = context.players.filter(p => p.seatIndex !== context.selfSeatIndex);
+  // Count assignments before enumerating; avoid a factorial allocation storm.
+  let count = 1, remaining = pool.length;
+  for (const seat of seats) {
+    const need = seat.cardCount - hands[seat.seatIndex].length;
+    let ways = 1;
+    for (let i = 1; i <= need; i++) ways = ways * (remaining - i + 1) / i;
+    count *= ways; remaining -= need;
+    if (count > cap) return null;
+  }
+  const deals: Card[][][] = [];
+  const assign = (index: number, available: Card[]) => {
+    if (index === seats.length) { deals.push(hands.map(cards => [...cards])); return; }
+    const seat = seats[index];
+    const base = [...hands[seat.seatIndex]];
+    const need = seat.cardCount - base.length;
+    const choose = (start: number, selected: Card[]) => {
+      if (selected.length === need) {
+        const ids = new Set(selected.map(c => c.id));
+        hands[seat.seatIndex] = [...base, ...selected];
+        assign(index + 1, available.filter(c => !ids.has(c.id)));
+        hands[seat.seatIndex] = base;
+        return;
+      }
+      for (let i = start; i <= available.length - (need - selected.length); i++) choose(i + 1, [...selected, available[i]]);
+    };
+    choose(0, []);
+  };
+  assign(0, pool);
+  return deals;
+}
+
 /** Exact cover of physical card subsets. Every legal group is a possible one
  * turn; no opponent is modelled here. When bounded search expires, returns a
  * valid upper bound explicitly labelled inexact. */
@@ -241,7 +282,7 @@ export async function analyzeDecision(
   options: { budgetMs?: number; maxSamples?: number; random?: () => number } = {},
 ): Promise<DecisionAnalysis> {
   const start = performance.now();
-  const budget = Math.max(0, options.budgetMs ?? 350);
+  const budget = Math.max(0, options.budgetMs ?? 800);
   const deadline = start + budget;
   const estimator = createTurnEstimator(hand, allPlays, Math.min(deadline, start + 80));
   const analysis: DecisionAnalysis = {
@@ -285,10 +326,12 @@ export async function analyzeDecision(
     return policyCache.get(key)!;
   };
   analysis.simulation.status = 'budget_exhausted';
-  for (let sample = 0; sample < (options.maxSamples ?? 12); sample++) {
+  const deals = enumerateHiddenHands(hand, context, knowledge, options.maxSamples ?? 256);
+  const sampleLimit = options.maxSamples ?? (deals?.length || 256);
+  for (let sample = 0; sample < Math.min(sampleLimit, deals?.length ?? sampleLimit); sample++) {
     await new Promise<void>(resolve => setImmediate(resolve));
     if (performance.now() >= deadline) break;
-    const sampled = sampleHiddenHands(hand, context, knowledge, options.random);
+    const sampled = deals ? deals[sample] : sampleHiddenHands(hand, context, knowledge, options.random);
     if (!sampled) { analysis.simulation.status = 'inconsistent_public_state'; break; }
     const results = roots.map(root => rollout(sampled, root, last, level, context, policy, deadline));
     if (results.some(result => result === null)) break;
@@ -302,6 +345,13 @@ export async function analyzeDecision(
     });
     analysis.simulation.samples++;
     analysis.simulation.status = 'sampled';
+  }
+  if (deals) analysis.simulation.status = analysis.simulation.samples === deals.length
+    ? 'all_deals_policy_rollout' : 'incomplete_enumeration';
+  // A lexicographic prefix is not an unbiased sample of possible deals.
+  if (deals && analysis.simulation.samples !== deals.length) {
+    analysis.simulation.samples = 0;
+    return finish();
   }
   roots.forEach((root, index) => {
     const total = totals[index];

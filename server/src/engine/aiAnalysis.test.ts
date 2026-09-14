@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import { createDeck } from './card';
-import { findBestPlay, generateLegalPlays, findSmartPlay, enforceTeamStrategy } from './ai';
+import { findBestPlay, generateLegalPlays, findSmartPlay, enforceTeamStrategy, stratifyCandidates } from './ai';
 import type { DecisionAnalysis } from './aiAnalysis';
 import {
   analyzeDecision, analysisKey, buildPublicKnowledge, createTurnEstimator,
-  rollout, sampleHiddenHands,
+  rollout, sampleHiddenHands, enumerateHiddenHands,
 } from './aiAnalysis';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext, AiRecentAction } from './llmAi';
@@ -39,6 +39,33 @@ function contextFor(hands: Card[][]): AiDecisionContext {
 function rankedHand(ranks: Rank[]): Card[] {
   return ranks.map((rank, id) => ({ id, rank, suit: [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond][id % 4] }));
 }
+
+test('stratification retains a low-ranked bomb among many singles', () => {
+  const hand = rankedHand([3, 3, 3, 3, 4, 5, 6, 7, 8, 9]);
+  const all = generateLegalPlays(hand, 2);
+  const singles = all.filter(p => p.type === PatternType.Single);
+  const bomb = all.find(p => p.type === PatternType.Bomb4)!;
+  const selected = stratifyCandidates([...singles, bomb], hand, 2, 4);
+  assert.ok(selected.includes(bomb));
+  assert.equal(selected.length, 4);
+  assert.ok(selected.every(p => all.includes(p)));
+  assert.deepEqual(selected, stratifyCandidates([...singles, bomb], hand, 2, 4));
+});
+
+test('small hidden deal enumeration covers every allocation and respects cap', () => {
+  const deck = createDeck();
+  const hands = [[deck[0]], [deck[1]], [deck[2]], [deck[3]]];
+  const context = contextFor(hands);
+  const knowledge = buildPublicKnowledge(hands[0], context)!;
+  const deals = enumerateHiddenHands(hands[0], context, knowledge)!;
+  assert.equal(deals.length, 6);
+  assert.equal(new Set(deals.map(d => d.map(h => h.map(c => c.id).join(',')).join('|'))).size, 6);
+  for (const deal of deals) {
+    assert.deepEqual(deal[0], hands[0]);
+    assert.equal(new Set(deal.flat().map(c => c.id)).size, 4);
+  }
+  assert.equal(enumerateHiddenHands(hands[0], context, knowledge, 5), null);
+});
 
 test('final policy rejects overtaking partner and prioritizes a direct finish', () => {
   const hand = rankedHand([14, 16, 3]);

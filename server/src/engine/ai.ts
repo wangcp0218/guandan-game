@@ -294,8 +294,9 @@ function scorePlay(
     else if (held === 2 && selected.length === 1) score -= 45;
   }
   if (!isBombPattern(play)) {
-    score -= play.cards.filter(card => isWildCard(card, currentLevel)).length * 260;
-    score -= play.cards.filter(isJoker).length * 100;
+    const late = hand.length <= 10 || context?.players.some(p => p.finishRank === null && p.cardCount <= 5);
+    score -= play.cards.filter(card => isWildCard(card, currentLevel)).length * (late ? 90 : 260);
+    score -= play.cards.filter(isJoker).length * (late ? 35 : 100);
     score -= play.cards.filter(card => protectedCardIds.has(card.id)).length * 90;
   }
 
@@ -327,6 +328,30 @@ function scorePlay(
   return score;
 }
 
+/** Deterministic round-robin representation; never invents or removes legality. */
+export function stratifyCandidates(plays: CardPattern[], hand: Card[], level: number, limit = 160): CardPattern[] {
+  const counts = getRankCounts(hand);
+  const buckets = new Map<string, CardPattern[]>();
+  for (const play of plays) {
+    const used = getRankCounts(play.cards);
+    const splits = [...used].some(([rank, cards]) => (counts.get(rank)?.length || 0) > cards.length);
+    const bombSplit = [...used].some(([rank, cards]) => (counts.get(rank)?.length || 0) >= 4
+      && (counts.get(rank)?.length || 0) > cards.length);
+    const key = `${play.type}:${play.cards.some(c => isWildCard(c, level))}:${splits}:${bombSplit}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(play);
+  }
+  const result: CardPattern[] = [];
+  for (let row = 0; result.length < limit; row++) {
+    let added = false;
+    for (const bucket of buckets.values()) {
+      if (bucket[row] && result.length < limit) { result.push(bucket[row]); added = true; }
+    }
+    if (!added) break;
+  }
+  return result;
+}
+
 function orderCandidates(
   plays: CardPattern[],
   hand: Card[],
@@ -351,7 +376,10 @@ function orderCandidates(
     const used = new Set(play.cards.map(card => card.id));
     const retained = controls.get(`${play.type}:${play.length}`)?.find(control =>
       canBeat(control, play, currentLevel) && control.cards.every(card => !used.has(card.id)));
-    return retained ? 75 : 0;
+    if (!retained) return 0;
+    const strength = effectiveRank(retained.rank, currentLevel);
+    // Low reserve cards are weak evidence of recapture; even A is not a lock.
+    return strength >= effectiveRank(Rank.Ace, currentLevel) ? 75 : 20;
   };
   const protectedCardIds = new Set(plays
     .filter(play => play.type === PatternType.FlushStraight || play.type === PatternType.KingBomb)
@@ -494,11 +522,10 @@ export async function findSmartPlay(
     legalPlays = legalPlays.filter(play => canBeat(play, lastPattern, currentLevel));
   }
   legalPlays = dedupeStrategicPlays(legalPlays);
-  legalPlays = applyStrategicGuards(legalPlays, hand, currentLevel, isFreePlay, context);
   // The hint system keeps the exhaustive list. The LLM receives the strongest
   // Base7-ranked slice so a combinatorial hand cannot overflow its context.
-  legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context)
-    .slice(0, MAX_LLM_CANDIDATES);
+  legalPlays = stratifyCandidates(
+    orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context), hand, currentLevel, MAX_LLM_CANDIDATES);
   const analysis = await analyzeDecision(
     hand, allPlays, legalPlays, isFreePlay ? null : lastPattern,
     currentLevel, context, findBestPlay,
