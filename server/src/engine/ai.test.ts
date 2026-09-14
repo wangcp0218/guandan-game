@@ -313,3 +313,49 @@ test('a trailing team under threat spends the bomb; a calm lead preserves struct
   assert.notEqual(calmPlay?.type, PatternType.Bomb4);
   assert.equal(calmPlay?.type, PatternType.Straight);
 });
+
+test('plays the largest single when the clockwise next player has one card', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three],
+    [Suit.Spade, Rank.Ace],
+    [Suit.Spade, Rank.BigJoker],
+  ]);
+  const context = fourPlayerContext({
+    players: [
+      { seatIndex: 0, cardCount: hand.length, finishRank: null, relation: 'self' },
+      { seatIndex: 1, cardCount: 1, finishRank: null, relation: 'opponent' },
+      { seatIndex: 2, cardCount: 8, finishRank: null, relation: 'partner' },
+      { seatIndex: 3, cardCount: 8, finishRank: null, relation: 'opponent' },
+    ],
+  });
+
+  const play = findBestPlay(hand, null, true, Rank.Two, context);
+  assert.equal(play?.type, PatternType.Single);
+  assert.equal(play?.rank, Rank.BigJoker);
+});
+
+test('plays the largest legal pair when the clockwise next player has two cards', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.King], [Suit.Heart, Rank.King],
+    [Suit.Spade, Rank.Ace], [Suit.Heart, Rank.Ace],
+  ]);
+  const last = {
+    type: PatternType.Pair,
+    cards: cards([[Suit.Club, Rank.Queen], [Suit.Diamond, Rank.Queen]]),
+    rank: Rank.Queen,
+    length: 2,
+  };
+  const context = fourPlayerContext({
+    lastPlayPlayerIndex: 3,
+    players: [
+      { seatIndex: 0, cardCount: hand.length, finishRank: null, relation: 'self' },
+      { seatIndex: 1, cardCount: 2, finishRank: null, relation: 'opponent' },
+      { seatIndex: 2, cardCount: 8, finishRank: null, relation: 'partner' },
+      { seatIndex: 3, cardCount: 8, finishRank: null, relation: 'opponent' },
+    ],
+  });
+
+  const play = findBestPlay(hand, last, false, Rank.Two, context);
+  assert.equal(play?.type, PatternType.Pair);
+  assert.equal(play?.rank, Rank.Ace);
+});

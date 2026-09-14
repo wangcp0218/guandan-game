@@ -436,6 +436,66 @@ function orderCandidates(
   return [...plays].sort((a, b) => scores.get(b)! - scores.get(a)!);
 }
 
+/**
+ * Guandan endgame defence against the clockwise next player: once the AI has
+ * decided to play the reported shape, it must use its strongest legal one.
+ * This deliberately does not force a single/pair lead or turn a PASS into a
+ * play; it only replaces a chosen single/pair with the largest equivalent.
+ */
+export function enforceReportedNextPlayerMaximum(
+  proposed: CardPattern | null,
+  candidates: CardPattern[],
+  nextPlayerCardCount: number,
+  level: number,
+): CardPattern | null {
+  if (!proposed) return proposed;
+  const requiredType = nextPlayerCardCount === 1
+    ? PatternType.Single
+    : nextPlayerCardCount === 2
+      ? PatternType.Pair
+      : null;
+  if (requiredType === null || proposed.type !== requiredType) return proposed;
+
+  const sameType = candidates.filter(play => play.type === requiredType);
+  return sameType.reduce((strongest, play) =>
+    canBeat(play, strongest, level) ? play : strongest, proposed);
+}
+
+function enforceNextPlayerReport(
+  proposed: CardPattern | null,
+  candidates: CardPattern[],
+  level: number,
+  context?: AiDecisionContext,
+): CardPattern | null {
+  if (!context) return proposed;
+  const nextSeatIndex = (context.selfSeatIndex + 1) % 4;
+  const nextPlayer = context.players.find(player => player.seatIndex === nextSeatIndex);
+  if (!nextPlayer || nextPlayer.finishRank !== null) return proposed;
+  return enforceReportedNextPlayerMaximum(proposed, candidates, nextPlayer.cardCount, level);
+}
+
+function retainNextPlayerReportMaximum(
+  selected: CardPattern[],
+  allCandidates: CardPattern[],
+  level: number,
+  context?: AiDecisionContext,
+): CardPattern[] {
+  if (!context || selected.length === 0) return selected;
+  const nextSeatIndex = (context.selfSeatIndex + 1) % 4;
+  const nextPlayer = context.players.find(player => player.seatIndex === nextSeatIndex);
+  const requiredType = nextPlayer?.finishRank === null && nextPlayer.cardCount === 1
+    ? PatternType.Single
+    : nextPlayer?.finishRank === null && nextPlayer.cardCount === 2
+      ? PatternType.Pair
+      : null;
+  if (requiredType === null) return selected;
+  const matching = allCandidates.filter(play => play.type === requiredType);
+  if (matching.length === 0) return selected;
+  const strongest = matching.reduce((best, play) => canBeat(play, best, level) ? play : best);
+  if (selected.includes(strongest)) return selected;
+  return [...selected.slice(0, -1), strongest];
+}
+
 export function findBestPlay(
   hand: Card[],
   lastPattern: CardPattern | null,
@@ -459,7 +519,7 @@ export function findBestPlay(
       : lastPlayer?.cardCount !== undefined && lastPlayer.cardCount <= 3 ? -10_000 : 0;
     if (scorePlay(ordered[0], hand, currentLevel, false, context) <= passScore) return null;
   }
-  return ordered[0] || null;
+  return enforceNextPlayerReport(ordered[0] || null, legalPlays, currentLevel, context);
 }
 
 export function findBestTribute(hand: Card[], currentLevel: number): Card {
@@ -521,6 +581,9 @@ export function enforceTeamStrategy(
   const finish = candidates.find(play => play.cards.length === hand.length);
   if (finish) return finish;
   if (!proposed) return null;
+  const reportAdjusted = enforceNextPlayerReport(proposed, candidates, level, context);
+  if (!reportAdjusted) return null;
+  proposed = reportAdjusted;
   const partnerLed = !free && last && context
     && context.lastPlayPlayerIndex === context.partnerSeatIndex;
   if (partnerLed && last) {
@@ -573,8 +636,13 @@ export async function findSmartPlay(
   }
   // The hint system keeps the exhaustive list. The LLM receives the strongest
   // Base7-ranked slice so a combinatorial hand cannot overflow its context.
-  legalPlays = stratifyCandidates(
-    orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context), hand, currentLevel, MAX_LLM_CANDIDATES);
+  const completeLegalPlays = legalPlays;
+  legalPlays = retainNextPlayerReportMaximum(stratifyCandidates(
+    orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context),
+    hand,
+    currentLevel,
+    MAX_LLM_CANDIDATES,
+  ), completeLegalPlays, currentLevel, context);
   const analysis = await analyzeDecision(
     hand, allPlays, legalPlays, isFreePlay ? null : lastPattern,
     currentLevel, context, findBestPlay,
