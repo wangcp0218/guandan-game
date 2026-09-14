@@ -121,7 +121,7 @@ export default function Lobby() {
   const [maxRounds, setMaxRounds] = useState(0);
   const [maxMinutes, setMaxMinutes] = useState(0);
   const [tripleDoublePenalty, setTripleDoublePenalty] = useState(false);
-  const [aiUseLLM, setAiUseLLM] = useState(false);
+  const [aiUseLLM, setAiUseLLM] = useState(true);
 
   const createRoom = () => {
     if (!roomName.trim()) {
