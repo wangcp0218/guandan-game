@@ -10,6 +10,7 @@ export const DEFAULT_AI_SELECTION: AiModelSelection = {
   model: 'deepseek-v4-flash',
 };
 const MODEL_REQUEST_TIMEOUT = 20000;
+export const LOCAL_AI_MODEL = 'Qwen3.8-27';
 
 interface ProviderConfig {
   baseUrl: string;
@@ -66,12 +67,34 @@ export function normalizeAiSelection(
   model: unknown,
 ): AiModelSelection {
   const normalizedProvider: AiProvider = provider === 'local' ? 'local' : 'deepseek';
-  const normalizedModel = typeof model === 'string' && /^[\w./:-]{1,120}$/.test(model.trim())
+  const candidate = typeof model === 'string' && /^[\w./:-]{1,120}$/.test(model.trim())
     ? model.trim()
-    : normalizedProvider === 'deepseek'
-      ? (process.env.DEEPSEEK_MODEL || DEFAULT_AI_SELECTION.model)
+    : '';
+  const configuredDefault = normalizedProvider === 'deepseek'
+    ? (process.env.DEEPSEEK_MODEL || DEFAULT_AI_SELECTION.model)
+    : '';
+  const normalizedModel = isSelectableAiModel(normalizedProvider, candidate)
+    ? candidate
+    : !candidate && isSelectableAiModel(normalizedProvider, configuredDefault)
+      ? configuredDefault
       : '';
   return { provider: normalizedProvider, model: normalizedModel };
+}
+
+/** Cost-controlled model allowlist used by both model discovery and room creation. */
+export function isSelectableAiModel(provider: AiProvider, model: string): boolean {
+  const modelId = model.trim();
+  if (!modelId) return false;
+  if (provider === 'deepseek') return !modelId.toLowerCase().includes('pro');
+  return modelId === LOCAL_AI_MODEL;
+}
+
+export function filterSelectableAiModels(provider: AiProvider, models: string[]): string[] {
+  return Array.from(new Set(
+    models
+      .map(model => model.trim())
+      .filter(model => isSelectableAiModel(provider, model)),
+  )).sort((a, b) => a.localeCompare(b));
 }
 
 export async function fetchAvailableAiModels(provider: AiProvider): Promise<string[]> {
@@ -91,7 +114,7 @@ export async function fetchAvailableAiModels(provider: AiProvider): Promise<stri
     const modelIds: string[] = models
       .map((item: any) => typeof item === 'string' ? item : item?.id || item?.name)
       .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
-    return Array.from(new Set<string>(modelIds)).sort((a, b) => a.localeCompare(b));
+    return filterSelectableAiModels(provider, modelIds);
   } finally {
     clearTimeout(timeoutId);
   }

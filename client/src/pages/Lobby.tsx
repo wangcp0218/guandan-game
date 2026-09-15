@@ -11,6 +11,15 @@ function defaultRoomName() {
   return `${pad(now.getMonth() + 1)}月${pad(now.getDate())}日 ${pad(now.getHours())}:${pad(now.getMinutes())}牌局`;
 }
 
+const LOCAL_AI_MODEL = 'Qwen3.8-27';
+
+function filterSelectableModels(provider: AiProvider, models: string[]) {
+  return Array.from(new Set(models.filter(model => provider === 'deepseek'
+    ? !model.toLowerCase().includes('pro')
+    : model === LOCAL_AI_MODEL
+  )));
+}
+
 export default function Lobby() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -76,16 +85,17 @@ export default function Lobby() {
       error?: string;
     }) => {
       if (data.requestId !== modelRequestId.current) return;
+      const selectableModels = filterSelectableModels(data.provider, data.models);
       setModelsLoading(false);
       setModelsError(data.error || '');
-      setAiModels(data.models);
-      if (data.models.length > 0) {
+      setAiModels(selectableModels);
+      if (selectableModels.length > 0) {
         const preferred = data.provider === 'deepseek'
-          ? 'deepseek-v4-flash'
-          : 'deepseek-v4-flash-0731';
-        setAiModel(current => data.models.includes(current)
+          ? (selectableModels.includes('deepseek-v4-flash') ? 'deepseek-v4-flash' : selectableModels[0])
+          : LOCAL_AI_MODEL;
+        setAiModel(current => selectableModels.includes(current)
           ? current
-          : data.models.includes(preferred) ? preferred : data.models[0]
+          : preferred
         );
       } else {
         setAiModel('');
@@ -108,6 +118,7 @@ export default function Lobby() {
     setModelsLoading(true);
     setModelsError('');
     setAiModels([]);
+    setAiModel('');
     getSocket()?.emit('get_ai_models', { provider, requestId });
   };
 
@@ -251,7 +262,11 @@ export default function Lobby() {
                 <label style={styles.fieldLabel}><span><input type="checkbox" checked={aiUseLLM} onChange={e => setAiUseLLM(e.target.checked)} />智能 AI（调用大模型辅助决策，默认开启；关闭后使用本地规则 AI）</span></label>
                 {info && <p style={styles.error}>{info}</p>}
                 <div style={styles.modalBtns}>
-                  <button className="btn-primary" onClick={createRoom}>创建</button>
+                  <button
+                    className="btn-primary"
+                    onClick={createRoom}
+                    disabled={aiUseLLM && (modelsLoading || !aiModel)}
+                  >创建</button>
                   <button className="btn-secondary" onClick={() => { setShowCreate(false); setInfo(''); }}>取消</button>
                 </div>
               </div>
