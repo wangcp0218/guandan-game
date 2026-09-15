@@ -234,27 +234,32 @@ test('LLM input contains complete public memory and local analysis, not sampled 
   const analysis = await analyzeDecision(hands[0], plays, plays, null, 2, context, findBestPlay,
     { budgetMs: 0 });
   let input: any;
+  let requestBody: any;
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(init!.body as string);
+    requestBody = body;
     input = JSON.parse(body.messages[1].content.split('\n')[1]);
     return { ok: true, json: async () => ({ choices: [{ message: { content: '{"action_id":0}' } }] }) } as Response;
   }) as typeof fetch;
   try {
     await llmFindBestPlay(hands[0], plays, null, true, 2, context, undefined, analysis);
-    assert.equal(input.action_history.length, 104);
-    assert.ok(input.public_memory.played_cards);
+    assert.equal(input.recent_action_history.length, 12);
+    assert.equal(input.public_memory.played_cards, undefined);
     assert.ok(input.public_memory.unseen_cards);
     assert.equal(input.played_by_seat.length, 4);
     assert.ok(input.played_by_seat.every((player: any) => player.cards.length > 0));
     assert.deepEqual(input.local_analysis.hand_turns, { turns: 1, exact: true });
-    assert.equal(input.legal_action_schema[11], 'analysis');
-    assert.equal(input.legal_actions[0][11].remainingTurns.turns, 0);
+    assert.equal(input.legal_action_member_schema[10], 'analysis');
+    assert.equal(input.legal_actions[0][1][0][10].remainingTurns.turns, 0);
     assert.equal(input.candidate_coverage.model_actions, plays.length);
     assert.equal(input.candidate_coverage.represented_equivalent_actions, plays.length);
     assert.equal(input.hand_combinations.same_as_legal_actions, true);
-    assert.equal(input.legal_actions[0][5], 1);
+    assert.equal(input.legal_actions[0][1][0][4], 1);
+    assert.equal(typeof input.public_inference.unseen_controls, 'string');
     assert.ok(input.public_memory.publicly_known_cards.every((p: any) => p.cards === ''));
     assert.equal(input.sampled_hands, undefined);
+    assert.equal(requestBody.max_tokens, 192);
+    assert.ok(requestBody.messages[0].content.length < 2500);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousKey === undefined) delete process.env.DEEPSEEK_API_KEY;

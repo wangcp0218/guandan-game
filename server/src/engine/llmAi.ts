@@ -132,27 +132,8 @@ const PATTERN_NAMES: Record<PatternType, string> = {
   [PatternType.FlushStraight]: '同花顺',
 };
 
-function describeOptions(options: CardPattern[]): string {
-  return options.map((option, optionId) => JSON.stringify({
-    option_id: optionId,
-    type: PATTERN_NAMES[option.type],
-    cards: option.cards.map(card => cardDisplayName(card)),
-    rank: option.rank,
-    length: option.length,
-  })).join('\n');
-}
-
-function describePlayers(context?: AiDecisionContext): string {
-  if (!context) return '无额外玩家信息';
-  const relationNames = { self: '自己', partner: '队友', opponent: '对手' } as const;
-  return context.players.map(player => {
-    const finished = player.finishRank ? `，已获第${player.finishRank}名` : '';
-    return `座位${player.seatIndex}（${relationNames[player.relation]}）：剩${player.cardCount}张${finished}`;
-  }).join('\n');
-}
-
 function describeHistory(context?: AiDecisionContext): string {
-  const history = context?.actionHistory ?? context?.recentActions;
+  const history = context?.recentActions ?? context?.actionHistory?.slice(-12);
   if (!history?.length) return '暂无';
   return history.map(item => item.action === 'pass'
     ? `座位${item.seatIndex}：不出`
@@ -172,6 +153,27 @@ function describeActionCost(option: CardPattern, hand: Card[], currentLevel: num
     breaks_bomb: [...used].some(([rank, count]) => (held.get(rank) || 0) >= 4 && count < (held.get(rank) || 0)),
     splits_group: [...used].some(([rank, count]) => (held.get(rank) || 0) > count),
   };
+}
+
+function compactActionGroups(
+  options: CardPattern[], equivalentCounts: number[], hand: Card[], currentLevel: number,
+  includeAnalysis = false, analysis?: DecisionAnalysis,
+) {
+  const groups = new Map<PatternType, unknown[][]>();
+  options.forEach((option, actionId) => {
+    const cost = describeActionCost(option, hand, currentLevel);
+    const row: unknown[] = [
+      actionId, option.cards.map(card => cardDisplayName(card)).join(' '),
+      option.rank, option.length, equivalentCounts[actionId] || 1,
+      cost.remaining_cards, cost.uses_wildcards, cost.uses_jokers,
+      cost.breaks_bomb, cost.splits_group,
+    ];
+    if (includeAnalysis) row.push(analysis?.candidates[analysisKey(option)]);
+    const members = groups.get(option.type) || [];
+    members.push(row);
+    groups.set(option.type, members);
+  });
+  return [...groups].map(([type, members]) => [PATTERN_NAMES[type], members]);
 }
 
 function parseModelResponse(content: string): any {
@@ -205,40 +207,19 @@ export async function llmFindBestPlay(
   if (!providerConfig.apiKey || !normalizedSelection.model) return undefined;
   if (legalPlays.length === 0) return isFreePlay ? undefined : null;
 
-  const systemPrompt = `你是一名高水平竞技掼蛋选手，熟悉牌型、进贡还贡、逢人配、升级、双人协作、记牌、牌权控制和残局计算。你的任务不是单纯尽快出完，而是与对家合作，最大化本方双上、升级并避免对方双上的概率。
+  const systemPrompt = `你是竞技掼蛋选手，与对家合作争取双上和升级。程序保证合法性，你只负责战略选择。
 
-【规则与执行边界】
-使用两副牌、四人两队、对家为队友。牌型包括单张、对子、三张、三带二、固定5张顺子、固定3连对、固定2连三钢板、炸弹、同花顺和四王炸。红桃级牌是逢人配，可代替除大小王外的任意牌。牌力为大王>小王>级牌>A>K>Q>J>10>9>8>7>6>5>4>3>2；炸弹先比张数再比点数，同花顺大于五炸小于六炸，四王炸最大。平台传入的规则与合法动作集合拥有最高优先级。hand_combinations覆盖自己手牌可组成的全部战略性牌型，用于规划后续，但不一定能在当前桌面直接打出；legal_actions才是当前允许选择的动作。两者采用紧凑数组，字段顺序分别由hand_combination_schema和legal_action_schema定义；仅将牌型、点数和配牌声明等价的实体牌选择合并为一个代表动作，equivalent_variants表示合并数量。你不判断合法性，只能选择legal_actions中的action_id，绝不能从hand_combinations直接出牌、创造动作或修改动作里的牌。
+规则：两副牌、四人两队；牌型含单、对、三张、三带二、5张顺子、3连对、2连三、炸弹、同花顺、四王炸。红桃级牌可代替除王外任意牌。大王>小王>级牌>A>K…>2；炸弹先比张数，同花顺大于五炸小于六炸，四王炸最大。平台输入优先。
 
-【信息边界】
-只能使用本轮输入中的自己手牌、桌面牌、公开出牌推算的余牌数、公开行动与进贡还贡、当前级牌和合法动作。未见牌池只表示其余玩家合计可能持有的牌，不表示某个玩家的确定手牌。不得假设知道其他玩家实际手牌，不得把推断当成事实；过牌不代表没有能接的牌。remainingTurns是只考虑自己手牌、无对手干扰时的拆分手数，exact=false时只是可行上界。模拟胜率来自少量随机分配的未知手牌和规则AI续打，不是保证；样本少于4时不要据此改变策略，样本相近时优先手牌结构与本地排序。未提供完整公开牌历史时，不得声称完成了精确记牌。
+信息边界：只用自己手牌、公开历史、各家余牌、进还贡、当前桌面和程序分析。未见牌不确定属于谁；过牌不等于不能接。hand_combinations是全部手牌结构，仅供规划；legal_actions是当前可选动作。它们按对应schema解释，等价实体牌已合并并由本地评分保留较优代表。只能返回legal_actions中的action_id。
 
-【决策优先级】
-1. 最大化本方取得有利名次和升级的概率；2. 争取本方双上；3. 避免对方双上；4. 帮助队友取得头游；5. 控制关键牌权；6. 保存炸弹、同花顺和逢人配的战略价值；7. 减少孤张并优化手牌结构；8. 收益接近时选择风险更低、信息暴露更少的打法。必要时主动让牌、送队友、阻击对手或牺牲自己的名次。
+目标顺序：本方有利名次与升级、双上、阻止对方双上、送队友、控制牌权、保存炸弹/同花顺/逢人配、减少剩余手数和坏结构。不要只追求自己先走。
 
-【行动前检查】
-在内部依次检查但不要输出冗长思维过程：当前牌权与阶段；各家余牌及主要威胁；自己的自然成牌、孤张与拆牌风险；逢人配最佳用途；关键牌和炸弹的概率分布；队友近期行动与送牌机会；对手报单/报双风险；每个主要候选的即时收益、续牌能力、被反压概率、队友收益、对手收益、牌型成本及双上概率变化。
+策略：领出看减手数、后续回手和队友需求；跟牌通常用最低充分牌力。同类结构相近时先小后大，但对手报双可先用大对控权。队友牌默认不压；仅为直接走完、必要拦截或明确团队收益接管。敌方压过队友后可反压。炸弹用于阻止对手走牌、送队友或形成连续牌权，不赢低价值一轮；炸后评估续牌。逢人配优先组成强结构，残局可降低保存成本。
 
-【评估边界与局面分层】
-以最后实际出牌者判断牌权：敌方压了队友后，你反压属于夺回团队牌权，不是压队友。队友最后一手无人压才会接风，不能预先当作必然领出。队友送来的牌若能让你整手出完，应接；其他接管比较继续让牌的收益。
-领出优先减少手数、保留回手、配合队友，先小后大仅作结构相近时的偏好；跟牌优先最低充分牌力。对手报双时评估先大对子控权的收益，不机械出小对子，也不认为大对子一定封死。
-拦截要区分暂时拖延与持续控权：观察公开未见牌中还有什么能反压、自己后续能否续牌。不能证明封死不等于必须放牌，尤其不能直接放走对手。少量模拟全赢不构成封死证明。
-逢人配和王的保存成本在残局降低，不设必须在某张数前用掉配牌的硬期限。整手出完表示手牌归零；出后留一张弱牌不属于整手出完，必须考虑最后一手能否获得牌权。
-all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续打，不是minimax或不完全信息最优策略。incomplete_enumeration无有效胜率，不能利用枚举前缀估计收益。temperature=0也不保证模型完全确定。
+残局：任一玩家≤5张时规划未来1至3手。对手报单保留单张控制，报双保留对子控制；队友报单/双时创造对应牌型。下家只剩1张且决定出单时必须出最大合法单张；下家剩2张且决定出对子时必须出最大合法对子，但不强制该牌型或强制放弃PASS。
 
-【回手原则】
-对所有候选动作评估出牌后的回手能力：剩余手牌是否保留更大的同型牌、炸弹等控制，能否在对手接牌后再夺回牌权。结构和剩余手数相近时，优先有后续控制的出法；单张、对子、三张、三带二、顺子、连对、钢板及炸弹均原则上先小后大。不得因追求回手而随意拆炸、浪费逢人配或压队友。手里有更大的牌只表示潜在回手能力，不保证压得住未知对手的回应；必胜判断需要额外证据。
-下家（自己的顺时针下一座）只剩1张时，如果本次选择出单张，必须选择当前所有合法单张中最大的；下家只剩2张时，如果本次选择出对子，必须选择当前所有合法对子中最大的。该规则只约束所选牌型的大小，不强制把其他牌型改成单张或对子，也不强制放弃合理的PASS。
-
-【阶段策略】
-开局整理结构、确定主攻与辅助，不为试探反复出单。中盘根据余牌和行动历史传递己方牌权，不为低价值一轮破坏整体结构。任何玩家剩5张以内进入残局规划，按一手、两手、三手计算；对手报单保留单张控制，对手报双保留对子控制，队友报单/报双尽量创造对应牌型。自由出牌默认优先不拆炸弹的多张自然牌型，不要连续以“试探”为由出单；只有确需清理孤张或多张动作明显破坏关键结构时才出小单。
-
-【协作与炸弹】
-队友掌握牌权时默认PASS，尤其队友已出大牌、接近走完或已走完等待接风。只有自己能直接走完、公开未见牌池能证明必须截住报单对手，或至少8组成对模拟显示接牌相对PASS的升级收益提高至少0.25且对手剩5张以内，才考虑接管。笼统的“控牌”“试探”不是压队友的理由。
-同类动作在手牌结构相当时从小到大出；跟对手优先能压住的最小牌。保留王、级牌和炸弹作为控制牌。只有直接出完、公开信息证明的必要拦截或充分的模拟收益差异，才优先花大牌。样本中100%获胜不代表确定能赢。
-队友牌默认不压；接队友牌必须为了直接走完、阻击对手或重新送牌。队友是主攻者时承担拦截、拆牌和送牌职责。炸弹并非越晚越好：能阻止对手走牌、帮助队友走牌或形成连续牌权时果断使用；不要用炸弹赢低价值牌，炸后还要评估能否续牌。红桃级牌优先用于组合，除紧急拦截报单对手外不单出。稳健但不机械保守，信息不足时作概率化的稳健决策。
-
-只输出一个JSON对象，不得输出JSON以外内容。`;
+程序分析限制：remainingTurns不含对手干扰；抽样模拟不是确定胜率，样本少或接近时优先结构与本地排序；incomplete_enumeration无有效胜率。不要展示冗长推理，只输出指定JSON。`;
 
   const lastPlayerSnapshot = context?.players.find(player =>
     player.seatIndex === context.lastPlayPlayerIndex
@@ -281,10 +262,9 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
       cards: player.cardCount,
       finish_rank: player.finishRank,
     })) || [],
-    public_history_scope: knowledge ? '本局完整公开出牌与过牌；未见牌不确定属于哪家'
+    public_history_scope: knowledge ? '每家完整公开出牌＋最近12次出牌/过牌；未见牌不确定属于哪家'
       : '公开历史不完整或不一致，不能精确记牌',
     public_memory: knowledge ? {
-      played_cards: describeHand(knowledge.played, currentLevel),
       unseen_cards: describeHand(knowledge.unseen, currentLevel),
       publicly_known_cards: knowledge.knownBySeat.map((cards, seat) => ({
         seat, cards: describeHand(cards, currentLevel),
@@ -296,6 +276,20 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
         .filter(action => action.seatIndex === player.seatIndex && action.action === 'play')
         .flatMap(action => action.pattern?.cards || []), currentLevel),
     })) || [],
+    public_inference: knowledge ? {
+      unseen_controls: describeHand(knowledge.unseen.filter(card =>
+        card.rank >= Rank.King || card.rank === currentLevel
+      ), currentLevel),
+      reported_threats: context?.players
+        .filter(player => player.finishRank === null && player.cardCount <= 2)
+        .map(player => ({ seat: player.seatIndex, relation: relationNames[player.relation], cards: player.cardCount })),
+      recent_passes: context?.players.map(player => ({
+        seat: player.seatIndex,
+        count: (context.recentActions || []).filter(action =>
+          action.seatIndex === player.seatIndex && action.action === 'pass'
+        ).length,
+      })),
+    } : undefined,
     tribute_history: context?.publicTransfers?.map(transfer => ({
       from_seat: transfer.fromSeat, to_seat: transfer.toSeat, card: cardDisplayName(transfer.card),
     })),
@@ -304,44 +298,32 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
       pass_simulation: analysis.passSimulation,
       caveat: '手数不含对手干扰；抽样模拟不是校准后的真实胜率',
     } : undefined,
-    action_history: describeHistory(context).split('\n'),
+    recent_action_history: describeHistory(context).split('\n'),
     candidate_coverage: {
       model_actions: legalPlays.length,
       represented_equivalent_actions: representedCounts.reduce((sum, count) => sum + count, 0),
       policy: '全量战略组合；等价实体选择合并，由本地评分保留最少损伤的代表牌',
     },
-    hand_combination_schema: [
-      'combination_id', 'type', 'cards', 'rank', 'length', 'equivalent_variants',
+    action_group_schema: ['type', 'members'],
+    hand_combination_member_schema: [
+      'combination_id', 'cards', 'rank', 'length', 'equivalent_variants',
       'remaining_cards', 'uses_wildcards', 'uses_jokers', 'breaks_bomb', 'splits_group',
     ],
     hand_combinations: isFreePlay ? {
       same_as_legal_actions: true,
-    } : handCombinations.map((option, combinationId) => {
-      const cost = describeActionCost(option, hand, currentLevel);
-      return [
-        combinationId, PATTERN_NAMES[option.type],
-        option.cards.map(card => cardDisplayName(card)).join(' '), option.rank, option.length,
-        representedHandCombinationCounts[combinationId], cost.remaining_cards,
-        cost.uses_wildcards, cost.uses_jokers, cost.breaks_bomb, cost.splits_group,
-      ];
-    }),
-    legal_action_schema: [
-      'action_id', 'type', 'cards', 'rank', 'length', 'equivalent_variants',
+    } : compactActionGroups(
+      handCombinations, representedHandCombinationCounts, hand, currentLevel,
+    ),
+    legal_action_member_schema: [
+      'action_id', 'cards', 'rank', 'length', 'equivalent_variants',
       'remaining_cards', 'uses_wildcards', 'uses_jokers', 'breaks_bomb', 'splits_group', 'analysis',
     ],
-    legal_actions: legalPlays.map((option, actionId) => {
-      const cost = describeActionCost(option, hand, currentLevel);
-      return [
-        actionId, PATTERN_NAMES[option.type],
-        option.cards.map(card => cardDisplayName(card)).join(' '), option.rank, option.length,
-        representedCounts[actionId], cost.remaining_cards, cost.uses_wildcards,
-        cost.uses_jokers, cost.breaks_bomb, cost.splits_group,
-        analysis?.candidates[analysisKey(option)],
-      ];
-    }),
+    legal_actions: compactActionGroups(
+      legalPlays, representedCounts, hand, currentLevel, true, analysis,
+    ),
   };
   const userPrompt = `请根据以下牌桌输入选择动作：\n${JSON.stringify(input)}\n
-输出格式：{"action_id":数字或"PASS","cards":["仅用于复述所选动作"],"intent":"走牌/控权/送队友/阻击对手/整理牌型/试探/保留实力","confidence":0.00,"brief_reason":"不超过80个汉字","risk":"主要风险"}。只有跟牌时可选择PASS。`;
+输出格式：{"action_id":数字或"PASS","intent":"走牌/控权/送队友/阻击对手/整理牌型/试探/保留实力","confidence":0.00,"brief_reason":"不超过40个汉字","risk":"主要风险"}。只有跟牌时可选择PASS。`;
 
   try {
     const controller = new AbortController();
@@ -356,7 +338,7 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
           { role: 'user', content: userPrompt },
         ],
         temperature: stage === '残局' ? 0 : 0.25,
-        max_tokens: 384,
+        max_tokens: 192,
       };
       if (normalizedSelection.provider === 'deepseek') {
         requestBody.thinking = { type: 'disabled' };
@@ -390,7 +372,7 @@ all_deals_policy_rollout表示覆盖全部可行实体牌分配、用规则AI续
       ? Number(rawActionId)
       : rawActionId;
     const reasonSource = parsed.brief_reason ?? parsed.reason;
-    const reason = typeof reasonSource === 'string' ? reasonSource.slice(0, 80) : '未提供理由';
+    const reason = typeof reasonSource === 'string' ? reasonSource.slice(0, 40) : '未提供理由';
     if (rawActionId === 'PASS' || optionId === null) {
       if (isFreePlay) {
         console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] rejected pass during free play; using rule-based AI`);

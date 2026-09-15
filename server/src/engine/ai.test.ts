@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
 import {
   compressCandidatesForModel, findBestPlay, generateLegalPlays,
-  isForcedAiDecision, roundStake, scorePlay,
+  isForcedAiDecision, roundStake, scorePlay, shouldUseLlmForDecision,
 } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
@@ -298,6 +298,33 @@ test('following with one playable action is still strategic because pass is lega
   assert.equal(isForcedAiDecision(1, true), true);
   assert.equal(isForcedAiDecision(1, false), false);
   assert.equal(isForcedAiDecision(4, false), false);
+});
+
+test('model-call gate keeps strategic leads and endgames but skips routine follows', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four],
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
+    [Suit.Spade, Rank.Seven], [Suit.Spade, Rank.Nine], [Suit.Spade, Rank.Jack],
+  ]);
+  const all = generateLegalPlays(hand, Rank.Two);
+  const context = fourPlayerContext({});
+  assert.equal(shouldUseLlmForDecision(hand, all, null, true, Rank.Two, context), true);
+
+  const last = {
+    type: PatternType.Single,
+    cards: [{ id: 999, suit: Suit.Spade, rank: Rank.Six }],
+    rank: Rank.Six,
+    length: 1,
+  };
+  const responses = all.filter(play => canBeat(play, last, Rank.Two));
+  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), false);
+
+  const endgame = fourPlayerContext({
+    players: context.players.map(player => player.seatIndex === 1
+      ? { ...player, cardCount: 2 } : player),
+  });
+  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, endgame), true);
 });
 
 test('a trailing team under threat spends the bomb; a calm lead preserves structure', () => {
