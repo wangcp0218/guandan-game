@@ -360,12 +360,14 @@ export async function llmFindBestPlay(
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        temperature: stage === '残局' ? 0 : 0.25,
-        max_tokens: 192,
+        max_tokens: normalizedSelection.provider === 'deepseek' ? 512 : 192,
       };
       if (normalizedSelection.provider === 'deepseek') {
-        requestBody.thinking = { type: 'disabled' };
+        requestBody.thinking = { type: 'enabled' };
+        requestBody.reasoning_effort = 'low';
         requestBody.response_format = { type: 'json_object' };
+      } else {
+        requestBody.temperature = stage === '残局' ? 0 : 0.25;
       }
       response = await fetch(`${providerConfig.baseUrl}/chat/completions`, {
         method: 'POST',
