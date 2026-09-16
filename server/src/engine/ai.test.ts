@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
 import {
-  compressCandidatesForModel, findBestPlay, generateLegalPlays,
-  isForcedAiDecision, roundStake, scorePlay, shouldUseLlmForDecision,
+  compressCandidatesForModel, findBestPlay, generateLegalPlays, limitModelCandidates,
+  isForcedAiDecision, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
+  shouldUseLlmForDecision,
 } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
@@ -159,6 +160,26 @@ test('model candidates merge equivalent physical choices without losing declared
   assert.ok(compressed.plays.some(play => play.type === PatternType.Bomb4 && play.rank === Rank.Nine));
 });
 
+test('model candidate limit keeps every represented pattern family', () => {
+  const hand = cards([
+    [Suit.Heart, Rank.Two],
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Club, Rank.Three], [Suit.Diamond, Rank.Three],
+    [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four], [Suit.Club, Rank.Four],
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
+    [Suit.Spade, Rank.Six], [Suit.Heart, Rank.Six],
+    [Suit.Spade, Rank.Seven], [Suit.Heart, Rank.Seven],
+  ]);
+  const compressed = compressCandidatesForModel(generateLegalPlays(hand, Rank.Two), Rank.Two);
+  const typeCount = new Set(compressed.plays.map(play => play.type)).size;
+  const limited = limitModelCandidates(compressed, Math.max(12, typeCount));
+  assert.ok(limited.plays.length <= Math.max(12, typeCount));
+  assert.deepEqual(
+    new Set(limited.plays.map(play => play.type)),
+    new Set(compressed.plays.map(play => play.type)),
+  );
+});
+
 test('generator covers wildcard bomb, steel plate and straight flush plus king bomb', () => {
   const wildcardBomb = generateLegalPlays(cards([
     [Suit.Heart, Rank.Two],
@@ -298,6 +319,49 @@ test('following with one playable action is still strategic because pass is lega
   assert.equal(isForcedAiDecision(1, true), true);
   assert.equal(isForcedAiDecision(1, false), false);
   assert.equal(isForcedAiDecision(4, false), false);
+});
+
+test('PASS has an explicit situational score instead of a fixed zero threshold', () => {
+  const hand = cards([[Suit.Spade, Rank.Three], [Suit.Heart, Rank.Two]]);
+  const last = { type: PatternType.Single, cards: [{ id: 99, suit: Suit.Spade, rank: Rank.King }],
+    rank: Rank.King, length: 1 };
+  const calm = fourPlayerContext({ lastPlayPlayerIndex: 1 });
+  const urgent = fourPlayerContext({
+    lastPlayPlayerIndex: 1,
+    players: calm.players.map(player => player.seatIndex === 1 ? { ...player, cardCount: 2 } : player),
+  });
+  assert.ok(scorePass(hand, last, Rank.Two, calm) > scorePass(hand, last, Rank.Two, urgent));
+});
+
+test('lead scoring feeds a reported partner and respects reported opponents', () => {
+  const hand = cards([[Suit.Spade, Rank.Three], [Suit.Spade, Rank.Four]]);
+  const single = generateLegalPlays(hand, Rank.Two).find(play => play.rank === Rank.Three)!;
+  const calm = fourPlayerContext({});
+  const partnerReported = fourPlayerContext({
+    players: calm.players.map(player => player.seatIndex === 2
+      ? { ...player, cardCount: 1 } : player),
+  });
+  const opponentReported = fourPlayerContext({
+    players: calm.players.map(player => player.seatIndex === 3
+      ? { ...player, cardCount: 1 } : player),
+  });
+  assert.ok(scorePlay(single, hand, Rank.Two, true, partnerReported)
+    > scorePlay(single, hand, Rank.Two, true, calm));
+  assert.ok(scorePlay(single, hand, Rank.Two, true, opponentReported)
+    < scorePlay(single, hand, Rank.Two, true, calm));
+});
+
+test('simulation fallback requires matched samples and a conservative margin', () => {
+  const baseline = { samples: 16, meanReward: 0.1, winRate: 0.5, doubleWinRate: 0.1 };
+  assert.equal(reliablyBetterSimulation(
+    { ...baseline, meanReward: 0.2 }, baseline,
+  ), false);
+  assert.equal(reliablyBetterSimulation(
+    { ...baseline, meanReward: 0.5 }, baseline,
+  ), true);
+  assert.equal(reliablyBetterSimulation(
+    { ...baseline, samples: 4, meanReward: 1 }, { ...baseline, samples: 4 },
+  ), false);
 });
 
 test('model-call gate keeps strategic leads and endgames but skips routine follows', () => {

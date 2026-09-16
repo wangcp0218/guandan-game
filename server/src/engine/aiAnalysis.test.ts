@@ -2,15 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import { createDeck } from './card';
-import { findBestPlay, generateLegalPlays, findSmartPlay, enforceTeamStrategy, stratifyCandidates } from './ai';
+import { findBestPlay, generateLegalPlays, findSmartPlay, enforceTeamStrategy } from './ai';
 import type { DecisionAnalysis } from './aiAnalysis';
 import {
   analyzeDecision, analysisKey, buildPublicKnowledge, createTurnEstimator,
-  rollout, sampleHiddenHands, enumerateHiddenHands,
+  rollout, sampleHiddenHands, sampleHiddenHandsWeighted, enumerateHiddenHands, publicControlEvidence,
 } from './aiAnalysis';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext, AiRecentAction } from './llmAi';
 import { GameRoom } from '../services/GameRoom';
+import { getAiTelemetrySnapshot, resetAiTelemetry } from './aiTelemetry';
 
 function contextFor(hands: Card[][]): AiDecisionContext {
   const held = new Set(hands.flat().map(card => card.id));
@@ -40,18 +41,6 @@ function rankedHand(ranks: Rank[]): Card[] {
   return ranks.map((rank, id) => ({ id, rank, suit: [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond][id % 4] }));
 }
 
-test('stratification retains a low-ranked bomb among many singles', () => {
-  const hand = rankedHand([3, 3, 3, 3, 4, 5, 6, 7, 8, 9]);
-  const all = generateLegalPlays(hand, 2);
-  const singles = all.filter(p => p.type === PatternType.Single);
-  const bomb = all.find(p => p.type === PatternType.Bomb4)!;
-  const selected = stratifyCandidates([...singles, bomb], hand, 2, 4);
-  assert.ok(selected.includes(bomb));
-  assert.equal(selected.length, 4);
-  assert.ok(selected.every(p => all.includes(p)));
-  assert.deepEqual(selected, stratifyCandidates([...singles, bomb], hand, 2, 4));
-});
-
 test('small hidden deal enumeration covers every allocation and respects cap', () => {
   const deck = createDeck();
   const hands = [[deck[0]], [deck[1]], [deck[2]], [deck[3]]];
@@ -65,6 +54,30 @@ test('small hidden deal enumeration covers every allocation and respects cap', (
     assert.equal(new Set(deal.flat().map(c => c.id)).size, 4);
   }
   assert.equal(enumerateHiddenHands(hands[0], context, knowledge, 5), null);
+});
+
+test('weighted hidden sampling stays legal and treats passes as soft evidence', () => {
+  const deck = createDeck();
+  const hands = [[deck[0]], [deck[1]], [deck[2]], [deck[3]]];
+  const context = contextFor(hands);
+  context.actionHistory!.push({ seatIndex: 1, action: 'pass' });
+  const knowledge = buildPublicKnowledge(hands[0], context)!;
+  const sampled = sampleHiddenHandsWeighted(hands[0], context, knowledge, Rank.Two, () => 0.5)!;
+  assert.deepEqual(sampled.map(cards => cards.length), [1, 1, 1, 1]);
+  assert.equal(new Set(sampled.flat().map(card => card.id)).size, 4);
+});
+
+test('public control proof accounts for bombs and wildcard-assisted bombs', () => {
+  const deck = createDeck();
+  const self = [deck.find(card => card.rank === Rank.BigJoker)!];
+  const context = contextFor([self, [], [], []]);
+  const play = generateLegalPlays(self, Rank.Two)[0];
+  assert.equal(publicControlEvidence(play, self, Rank.Two, context)?.unbeatable, true);
+
+  const lateHands = [[deck[1]], [deck[2]], [deck[3]], [deck[4]]];
+  const lateContext = contextFor(lateHands);
+  const low = generateLegalPlays(lateHands[0], Rank.Two)[0];
+  assert.equal(publicControlEvidence(low, lateHands[0], Rank.Two, lateContext)?.unbeatable, false);
 });
 
 test('final policy rejects overtaking partner and prioritizes a direct finish', () => {
@@ -224,6 +237,7 @@ test('endgame uses balanced complete samples and labels exhausted/incomplete run
 });
 
 test('LLM input contains complete public memory and local analysis, not sampled hands', async () => {
+  resetAiTelemetry();
   const previousFetch = globalThis.fetch;
   const previousKey = process.env.DEEPSEEK_API_KEY;
   process.env.DEEPSEEK_API_KEY = 'test-only';
@@ -264,6 +278,10 @@ test('LLM input contains complete public memory and local analysis, not sampled 
     assert.equal(requestBody.temperature, undefined);
     assert.deepEqual(requestBody.response_format, { type: 'json_object' });
     assert.ok(requestBody.messages[0].content.length < 2500);
+    const telemetry = getAiTelemetrySnapshot();
+    assert.equal(telemetry.modelCalls, 1);
+    assert.equal(telemetry.modelOutcomes.success, 1);
+    assert.ok(telemetry.promptCharacters > 0);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousKey === undefined) delete process.env.DEEPSEEK_API_KEY;

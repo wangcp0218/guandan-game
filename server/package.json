@@ -6,6 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "test": "npm run build && node --test dist/server/src/engine/*.test.js",
+    "benchmark:ai": "npm run build && node dist/server/src/engine/aiBenchmark.js",
     "start": "node dist/server/src/index.js"
   },
   "dependencies": {

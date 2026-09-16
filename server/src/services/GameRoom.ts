@@ -10,6 +10,7 @@ import { getTeam, getLevelDelta, canResistTribute, selectTributeCard, selectRetu
 import { findBestPlay, findSmartPlay, generateLegalPlays } from '../engine/ai';
 import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
 import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
+import { recordAiDecision } from '../engine/aiTelemetry';
 
 const MAX_PLAYERS = 4;
 const PLAYER_ACTION_TIMEOUT = 90000;
@@ -922,6 +923,8 @@ export class GameRoom {
 
   private async aiPlay() {
     if (!this.state) return;
+    const decisionStarted = performance.now();
+    let decisionFailed = false;
     try {
       const expectedState = this.state;
       const playerIdx = this.state.currentPlayerIndex;
@@ -930,9 +933,9 @@ export class GameRoom {
 
       const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
       const context = this.getAiDecisionContext(playerIdx);
-      // Rule-based AI is the default path: instant, deterministic, no external
-      // dependency. The LLM path runs only when the room explicitly opted in
-      // at creation and the decision is complex enough to warrant it.
+      // LLM assistance is enabled by default for rooms, but findSmartPlay gates
+      // routine decisions locally. Rooms may explicitly opt out for fully
+      // deterministic rule-based play with no external dependency.
       const pattern = this.aiUseLLM
         ? await findSmartPlay(
             hand,
@@ -949,7 +952,6 @@ export class GameRoom {
             this.state.currentLevel,
             context,
           );
-
       // Ignore a delayed model response if the round or active player changed.
       if (
         !this.state ||
@@ -976,6 +978,7 @@ export class GameRoom {
         }
       }
     } catch (e) {
+      decisionFailed = true;
       console.error('aiPlay error:', e);
       // Fallback: just pass or force play smallest single
       if (this.state && this.state.lastPlay) {
@@ -995,6 +998,8 @@ export class GameRoom {
           }
         }
       }
+    } finally {
+      recordAiDecision(this.aiUseLLM, performance.now() - decisionStarted, decisionFailed);
     }
   }
 

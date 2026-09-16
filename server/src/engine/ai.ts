@@ -6,8 +6,8 @@ import {
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext } from './llmAi';
-import { analyzeDecision, analysisKey, buildPublicKnowledge } from './aiAnalysis';
-import type { DecisionAnalysis } from './aiAnalysis';
+import { analyzeDecision, analysisKey, buildPublicKnowledge, publicControlEvidence } from './aiAnalysis';
+import type { DecisionAnalysis, SampleResult } from './aiAnalysis';
 
 function getRankCounts(hand: Card[]): Map<number, Card[]> {
   const map = new Map<number, Card[]>();
@@ -350,6 +350,22 @@ export function scorePlay(
     const opponents = context.players.filter(player => player.relation === 'opponent' && player.finishRank === null);
     if (partner?.cardCount === play.cards.length) score += 900 * stake;
     if (opponents.some(player => player.cardCount === play.cards.length)) score -= 350;
+
+    // Shape the lead for a reported partner, not merely for an exact whole-hand
+    // match. Lower leads remain preferable through the generic rank cost.
+    if (partner?.cardCount === 1 && play.type === PatternType.Single) score += 520 * stake;
+    if (partner?.cardCount === 2 && play.type === PatternType.Pair) score += 520 * stake;
+    const nextSeat = (context.selfSeatIndex + 1) % 4;
+    for (const opponent of opponents) {
+      const exposesReportedShape = opponent.cardCount === 1 && play.type === PatternType.Single
+        || opponent.cardCount === 2 && play.type === PatternType.Pair;
+      if (exposesReportedShape) score -= opponent.seatIndex === nextSeat ? 900 : 260;
+    }
+  }
+
+  if (context && (play.type === PatternType.Single || play.type === PatternType.Pair)) {
+    const evidence = publicControlEvidence(play, hand, currentLevel, context);
+    if (evidence?.unbeatable) score += isFreePlay ? 260 : 420;
   }
 
   // Round-outcome shaping from finish ranks: partner already first means our
@@ -368,34 +384,44 @@ export function scorePlay(
   return score;
 }
 
-/** Deterministic round-robin representation; never invents or removes legality. */
-export function stratifyCandidates(plays: CardPattern[], hand: Card[], level: number, limit = 160): CardPattern[] {
-  const counts = getRankCounts(hand);
-  const buckets = new Map<string, CardPattern[]>();
-  for (const play of plays) {
-    const used = getRankCounts(play.cards);
-    const splits = [...used].some(([rank, cards]) => (counts.get(rank)?.length || 0) > cards.length);
-    const bombSplit = [...used].some(([rank, cards]) => (counts.get(rank)?.length || 0) >= 4
-      && (counts.get(rank)?.length || 0) > cards.length);
-    const key = `${play.type}:${play.cards.some(c => isWildCard(c, level))}:${splits}:${bombSplit}`;
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key)!.push(play);
-  }
-  const result: CardPattern[] = [];
-  for (let row = 0; result.length < limit; row++) {
-    let added = false;
-    for (const bucket of buckets.values()) {
-      if (bucket[row] && result.length < limit) { result.push(bucket[row]); added = true; }
-    }
-    if (!added) break;
-  }
-  return result;
-}
-
 export interface CompressedAiCandidates {
   plays: CardPattern[];
   /** Number of equivalent physical choices represented by each model action. */
   equivalentCounts: number[];
+}
+
+const MODEL_ACTION_LIMIT = 96;
+
+/** Bound prompt size without deleting an entire strategic family. Input is
+ * already heuristic-ordered; round-robin selection preserves representatives
+ * from every pattern type before taking deeper alternatives. */
+export function limitModelCandidates(
+  compressed: CompressedAiCandidates, limit = MODEL_ACTION_LIMIT,
+): CompressedAiCandidates {
+  if (compressed.plays.length <= limit) return compressed;
+  const buckets = new Map<PatternType, number[]>();
+  compressed.plays.forEach((play, index) => {
+    const bucket = buckets.get(play.type) || [];
+    bucket.push(index);
+    buckets.set(play.type, bucket);
+  });
+  const selected = new Set<number>([0]);
+  for (let row = 0; selected.size < limit; row++) {
+    let added = false;
+    for (const bucket of buckets.values()) {
+      const index = bucket[row];
+      if (index !== undefined && selected.size < limit) {
+        selected.add(index);
+        added = true;
+      }
+    }
+    if (!added) break;
+  }
+  const indices = [...selected].sort((left, right) => left - right);
+  return {
+    plays: indices.map(index => compressed.plays[index]),
+    equivalentCounts: indices.map(index => compressed.equivalentCounts[index]),
+  };
 }
 
 /**
@@ -554,36 +580,34 @@ export function findBestPlay(
   legalPlays = dedupeStrategicPlays(legalPlays);
   const ordered = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context);
   if (!isFreePlay && context) {
-    const lastPlayer = context.players.find(player => player.seatIndex === context.lastPlayPlayerIndex);
-    const passScore = lastPlayer?.relation === 'partner'
-      ? 100_000
-      : lastPlayer?.cardCount !== undefined && lastPlayer.cardCount <= 3 ? -10_000 : 0;
+    const passScore = scorePass(hand, lastPattern, currentLevel, context);
     if (scorePlay(ordered[0], hand, currentLevel, false, context) <= passScore) return null;
   }
   return enforceNextPlayerReport(ordered[0] || null, legalPlays, currentLevel, context);
 }
 
-export function findBestTribute(hand: Card[], currentLevel: number): Card {
-  let best = hand[0];
-  let bestScore = Infinity;
-
-  for (const c of hand) {
-    let score = c.rank * 10;
-    if (isJoker(c)) score += 1000;
-    if (c.rank === (currentLevel as Rank)) score += 500;
-    if (c.rank >= Rank.Ace) score += 100;
-
-    const rankCount = hand.filter(h => h.rank === c.rank).length;
-    if (rankCount >= 3) score += 200;
-    if (rankCount === 1) score -= 50;
-
-    if (score < bestScore) {
-      bestScore = score;
-      best = c;
-    }
-  }
-
-  return best;
+export function scorePass(
+  hand: Card[], last: CardPattern | null, level: number, context: AiDecisionContext,
+): number {
+  const lastPlayer = context.players.find(player => player.seatIndex === context.lastPlayPlayerIndex);
+  if (lastPlayer?.relation === 'partner') return 100_000;
+  // Defensive fallback for incomplete/synthetic contexts: never pass on a
+  // trick attributed to ourselves.
+  if (lastPlayer?.relation === 'self') return -10_000;
+  if (lastPlayer?.cardCount !== undefined && lastPlayer.cardCount <= 3) return -10_000;
+  if (!last) return Number.NEGATIVE_INFINITY;
+  const nextPlayer = context.players.find(player =>
+    player.seatIndex === (context.selfSeatIndex + 1) % 4 && player.finishRank === null);
+  let score = 250 + Math.min(150, effectiveRank(last.rank, level) * 6);
+  if ((lastPlayer?.cardCount ?? 27) > 10) score += 70;
+  if ((lastPlayer?.cardCount ?? 27) <= 5) score -= 260 * roundStake(context);
+  if (nextPlayer?.relation === 'partner' && nextPlayer.cardCount <= 5) score += 90;
+  if (nextPlayer?.relation === 'opponent' && nextPlayer.cardCount <= 5) score -= 140;
+  // Holding fragile resources is valuable even when their immediate response is legal.
+  const counts = getRankCounts(hand);
+  if ([...counts.values()].some(cards => cards.length >= 4)) score += 35;
+  if (hand.some(card => isWildCard(card, level))) score += 35;
+  return score;
 }
 
 function materiallyBetterSimulation(
@@ -596,6 +620,16 @@ function materiallyBetterSimulation(
   // or spending the weakest sufficient card. A sampled 100% is not proof.
   return !!result && !!other && result.samples >= 8 && result.samples === other.samples
     && result.meanReward - other.meanReward >= 0.25;
+}
+
+export function reliablyBetterSimulation(
+  result: SampleResult | undefined, baseline: SampleResult | undefined,
+): boolean {
+  if (!result || !baseline || result.samples !== baseline.samples || result.samples < 8) return false;
+  // Rewards lie in [-1, 1]. Without paired variance samples, use a shrinking
+  // conservative margin rather than trusting the largest small-sample mean.
+  const requiredMargin = Math.max(0.18, 0.8 / Math.sqrt(result.samples));
+  return result.meanReward - baseline.meanReward >= requiredMargin;
 }
 
 /** Publicly provable interception of a reported single: the weaker card can be
@@ -685,10 +719,10 @@ export async function findSmartPlay(
   // The hint system keeps every physical action. The model sees every distinct
   // declared strategy, with equivalent deck-copy/suit choices compressed.
   const completeLegalPlays = legalPlays;
-  const compressed = compressCandidatesForModel(
+  const compressed = limitModelCandidates(compressCandidatesForModel(
     orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context),
     currentLevel,
-  );
+  ));
   legalPlays = retainNextPlayerReportMaximum(
     compressed.plays, completeLegalPlays, currentLevel, context,
   );
@@ -697,10 +731,10 @@ export async function findSmartPlay(
     return index >= 0 ? compressed.equivalentCounts[index] : 1;
   });
   const equivalentCountByPlay = new Map(legalPlays.map((play, index) => [play, equivalentCounts[index]]));
-  const handCombinations = isFreePlay ? compressed : compressCandidatesForModel(
+  const handCombinations = isFreePlay ? compressed : limitModelCandidates(compressCandidatesForModel(
     orderCandidates(dedupeStrategicPlays(allPlays), hand, currentLevel, true, context),
     currentLevel,
-  );
+  ));
   const analysis = await analyzeDecision(
     hand, allPlays, legalPlays, isFreePlay ? null : lastPattern,
     currentLevel, context, findBestPlay,
@@ -710,15 +744,20 @@ export async function findSmartPlay(
   let fallbackResult = (isFreePlay || ruleResult) ? legalPlays[0] || ruleResult : null;
   // Do not let one lucky hidden-hand sample override the baseline. Compare
   // paired, completed simulations only, retaining baseline preference on ties.
-  if (analysis.simulation.samples >= 4) {
+  if (analysis.simulation.samples >= 8) {
     const simulated = legalPlays.filter(play => analysis.candidates[analysisKey(play)]?.simulation);
     simulated.sort((a, b) => analysis.candidates[analysisKey(b)].simulation!.meanReward
       - analysis.candidates[analysisKey(a)].simulation!.meanReward);
     if (simulated.length) {
-      fallbackResult = simulated[0];
       const best = analysis.candidates[analysisKey(simulated[0])].simulation!;
-      if (analysis.passSimulation && (analysis.passSimulation.meanReward > best.meanReward
-        || (!ruleResult && analysis.passSimulation.meanReward === best.meanReward))) fallbackResult = null;
+      const baseline = ruleResult
+        ? analysis.candidates[analysisKey(ruleResult)]?.simulation
+        : analysis.passSimulation;
+      if (reliablyBetterSimulation(best, baseline)) fallbackResult = simulated[0];
+      const selected = fallbackResult
+        ? analysis.candidates[analysisKey(fallbackResult)]?.simulation
+        : analysis.passSimulation;
+      if (reliablyBetterSimulation(analysis.passSimulation, selected)) fallbackResult = null;
     }
   }
 
@@ -791,25 +830,4 @@ export function shouldUseLlmForDecision(
   // meaningful; ordinary same-type minimum follows stay local.
   const usesWildcard = (play: CardPattern) => play.cards.some(card => isWildCard(card, currentLevel));
   return legalPlays.some(usesWildcard) && legalPlays.some(play => !usesWildcard(play));
-}
-
-export function findBestReturnTribute(hand: Card[]): Card {
-  let best = hand[0];
-  let bestScore = 0;
-
-  for (const c of hand) {
-    let score = c.rank * 10;
-    if (isJoker(c)) score -= 1000;
-
-    const rankCount = hand.filter(h => h.rank === c.rank).length;
-    if (rankCount === 1) score += 100;
-    if (rankCount >= 4) score -= 200;
-
-    if (score > bestScore) {
-      bestScore = score;
-      best = c;
-    }
-  }
-
-  return best;
 }

@@ -1,6 +1,6 @@
-import { Card, CardPattern } from '../../../shared/types';
-import { createDeck } from './card';
-import { canBeat } from './compare';
+import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
+import { createDeck, effectiveRank } from './card';
+import { canBeat, isBombPattern } from './compare';
 import type { AiDecisionContext } from './llmAi';
 
 export type ChoosePlay = (
@@ -36,6 +36,91 @@ export interface PublicKnowledge {
   played: Card[];
   unseen: Card[];
   knownBySeat: Card[][];
+}
+
+export interface PublicControlEvidence {
+  /** True only when the aggregate unseen pool cannot contain any response. */
+  unbeatable: boolean;
+  /** Conservative: cards are pooled across opponents, so true is possibility, not ownership proof. */
+  bombPossible: boolean;
+}
+
+const publicControlCache = new WeakMap<AiDecisionContext, Map<string, PublicControlEvidence | null>>();
+
+function rankCounts(cards: Card[]): Map<Rank, number> {
+  const counts = new Map<Rank, number>();
+  for (const card of cards) counts.set(card.rank, (counts.get(card.rank) || 0) + 1);
+  return counts;
+}
+
+function abstractPattern(type: PatternType, rank: Rank, length: number): CardPattern {
+  return { type, rank, length, cards: [] };
+}
+
+/** Conservative public-card proof. Pooling all unseen cards may report threats
+ * that no individual opponent actually owns, but can never certify a false lock. */
+export function publicControlEvidence(
+  play: CardPattern, hand: Card[], level: number, context?: AiDecisionContext,
+): PublicControlEvidence | null {
+  if (!context) return null;
+  let contextCache = publicControlCache.get(context);
+  if (!contextCache) {
+    contextCache = new Map();
+    publicControlCache.set(context, contextCache);
+  }
+  const cacheKey = `${level}:${hand.map(card => card.id).sort((a, b) => a - b).join(',')}:${play.type}:${play.rank}:${play.length}`;
+  if (contextCache.has(cacheKey)) return contextCache.get(cacheKey)!;
+  const knowledge = buildPublicKnowledge(hand, context);
+  if (!knowledge) {
+    contextCache.set(cacheKey, null);
+    return null;
+  }
+  const counts = rankCounts(knowledge.unseen);
+  const wilds = knowledge.unseen.filter(card => card.rank === level && card.suit === Suit.Heart).length;
+  const canMake = (rank: Rank, size: number) => (counts.get(rank) || 0)
+    - (rank === level ? wilds : 0) + (rank <= Rank.Ace ? wilds : 0) >= size;
+  const possibleBombs: CardPattern[] = [];
+  for (let rank = Rank.Two; rank <= Rank.Ace; rank++) {
+    for (let size = 4; size <= 10; size++) {
+      if (canMake(rank, size)) possibleBombs.push(abstractPattern(`bomb${size}` as PatternType, rank, size));
+    }
+  }
+  const jokers = (counts.get(Rank.SmallJoker) || 0) + (counts.get(Rank.BigJoker) || 0);
+  if (jokers === 4) possibleBombs.push(abstractPattern(PatternType.KingBomb, Rank.BigJoker, 4));
+  const sequenceRanks: Rank[][] = [[Rank.Ace, Rank.Two, Rank.Three, Rank.Four, Rank.Five]];
+  for (let start = Rank.Two; start <= Rank.Ten; start++) {
+    sequenceRanks.push(Array.from({ length: 5 }, (_, index) => (start + index) as Rank));
+  }
+  for (const suit of [Suit.Spade, Suit.Heart, Suit.Club, Suit.Diamond]) {
+    for (const run of sequenceRanks) {
+      const missing = run.filter(rank => !knowledge.unseen.some(card =>
+        card.rank === rank && card.suit === suit && !(card.rank === level && card.suit === Suit.Heart)
+      )).length;
+      if (missing <= wilds) {
+        possibleBombs.push(abstractPattern(PatternType.FlushStraight, run[run.length - 1], 5));
+      }
+    }
+  }
+  const bombPossible = possibleBombs.some(candidate => !isBombPattern(play) || canBeat(candidate, play, level));
+  let ordinaryResponse = false;
+  if (play.type === PatternType.Single) {
+    ordinaryResponse = knowledge.unseen.some(card =>
+      effectiveRank(card.rank, level) > effectiveRank(play.rank, level));
+  } else if (play.type === PatternType.Pair) {
+    for (let rank = Rank.Two; rank <= Rank.BigJoker; rank++) {
+      if (effectiveRank(rank, level) > effectiveRank(play.rank, level) && canMake(rank, 2)) {
+        ordinaryResponse = true;
+        break;
+      }
+    }
+  } else {
+    // Only singles and pairs currently receive a lock bonus. Other shapes need
+    // a complete declaration feasibility proof before they can be certified.
+    ordinaryResponse = true;
+  }
+  const evidence = { unbeatable: !ordinaryResponse && !bombPossible, bombPossible };
+  contextCache.set(cacheKey, evidence);
+  return evidence;
 }
 
 /** Never accepts other players' real hands. Cards are removed by physical ID,
@@ -109,6 +194,67 @@ export function sampleHiddenHands(
     offset += need;
   }
   return offset === pool.length ? hands : null;
+}
+
+function passConsistencyWeight(sampled: Card[][], context: AiDecisionContext, level: number): number {
+  const replayHands = sampled.map(cards => [...cards]);
+  for (const action of context.actionHistory || []) {
+    if (action.action === 'play' && action.pattern) replayHands[action.seatIndex].push(...action.pattern.cards);
+  }
+  let trick: CardPattern | null = null;
+  let leader = -1;
+  let passes = 0;
+  let weight = 1;
+  for (const action of context.actionHistory || []) {
+    if (action.action === 'play' && action.pattern) {
+      const ids = new Set(action.pattern.cards.map(card => card.id));
+      replayHands[action.seatIndex] = replayHands[action.seatIndex].filter(card => !ids.has(card.id));
+      trick = action.pattern;
+      leader = action.seatIndex;
+      passes = 0;
+      continue;
+    }
+    if (!trick) continue;
+    // Passing a partner is expected. Opponent-led single/pair passes are only
+    // soft evidence because conserving controls and structures is legitimate.
+    if (leader >= 0 && leader % 2 !== action.seatIndex % 2) {
+      const cards = replayHands[action.seatIndex];
+      let responses = 0;
+      if (trick.type === PatternType.Single) {
+        responses = cards.filter(card =>
+          effectiveRank(card.rank, level) > effectiveRank(trick!.rank, level)).length;
+      } else if (trick.type === PatternType.Pair) {
+        const counts = rankCounts(cards);
+        responses = [...counts].filter(([rank, count]) => count >= 2
+          && effectiveRank(rank, level) > effectiveRank(trick!.rank, level)).length;
+      }
+      weight /= 1 + responses * 0.45;
+    }
+    passes++;
+    if (passes >= 3) { trick = null; leader = -1; passes = 0; }
+  }
+  return Math.max(weight, 1e-6);
+}
+
+/** Draw several public-count-consistent deals and softly prefer those which
+ * better explain opponent-led passes. No deal is rejected solely for a pass. */
+export function sampleHiddenHandsWeighted(
+  hand: Card[], context: AiDecisionContext, knowledge: PublicKnowledge, level: number,
+  random: () => number = Math.random, proposals = 4,
+): Card[][] | null {
+  const choices: Array<{ hands: Card[][]; weight: number }> = [];
+  for (let index = 0; index < proposals; index++) {
+    const hands = sampleHiddenHands(hand, context, knowledge, random);
+    if (!hands) return null;
+    choices.push({ hands, weight: passConsistencyWeight(hands, context, level) });
+  }
+  const total = choices.reduce((sum, choice) => sum + choice.weight, 0);
+  let pick = random() * total;
+  for (const choice of choices) {
+    pick -= choice.weight;
+    if (pick <= 0) return choice.hands;
+  }
+  return choices[choices.length - 1]?.hands || null;
 }
 
 function bitCount(mask: number): number {
@@ -316,7 +462,7 @@ export async function analyzeDecision(
   }
   if (last) roots.push(null);
   if (!roots.length) return finish();
-  const totals = roots.map(() => ({ samples: 0, winRate: 0, doubleWinRate: 0, meanReward: 0 }));
+  const totals = roots.map(() => ({ samples: 0, weight: 0, winRate: 0, doubleWinRate: 0, meanReward: 0 }));
   // Cache local-policy decisions by public state and that player's own sampled
   // hand. This cache never contains another player's real hand.
   const policyCache = new Map<string, CardPattern | null>();
@@ -331,17 +477,20 @@ export async function analyzeDecision(
   for (let sample = 0; sample < Math.min(sampleLimit, deals?.length ?? sampleLimit); sample++) {
     await new Promise<void>(resolve => setImmediate(resolve));
     if (performance.now() >= deadline) break;
-    const sampled = deals ? deals[sample] : sampleHiddenHands(hand, context, knowledge, options.random);
+    const sampled = deals ? deals[sample]
+      : sampleHiddenHandsWeighted(hand, context, knowledge, level, options.random);
     if (!sampled) { analysis.simulation.status = 'inconsistent_public_state'; break; }
+    const sampleWeight = deals ? passConsistencyWeight(sampled, context, level) : 1;
     const results = roots.map(root => rollout(sampled, root, last, level, context, policy, deadline));
     if (results.some(result => result === null)) break;
     // Only complete paired samples count: every candidate faces the same deal.
     results.forEach((outcome, index) => {
       const total = totals[index];
       total.samples++;
-      total.winRate += Number(outcome!.win);
-      total.doubleWinRate += Number(outcome!.doubleWin);
-      total.meanReward += outcome!.reward;
+      total.weight += sampleWeight;
+      total.winRate += Number(outcome!.win) * sampleWeight;
+      total.doubleWinRate += Number(outcome!.doubleWin) * sampleWeight;
+      total.meanReward += outcome!.reward * sampleWeight;
     });
     analysis.simulation.samples++;
     analysis.simulation.status = 'sampled';
@@ -356,8 +505,8 @@ export async function analyzeDecision(
   roots.forEach((root, index) => {
     const total = totals[index];
     if (!total.samples) return;
-    const result = { ...total, winRate: total.winRate / total.samples,
-      doubleWinRate: total.doubleWinRate / total.samples, meanReward: total.meanReward / total.samples };
+    const result = { samples: total.samples, winRate: total.winRate / total.weight,
+      doubleWinRate: total.doubleWinRate / total.weight, meanReward: total.meanReward / total.weight };
     if (root) analysis.candidates[analysisKey(root)].simulation = result;
     else analysis.passSimulation = result;
   });

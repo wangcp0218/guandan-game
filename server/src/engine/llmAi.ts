@@ -2,6 +2,7 @@ import { AiModelSelection, AiProvider, Card, CardPattern, PatternType, Rank } fr
 import { cardDisplayName, sortCards } from './card';
 import { analysisKey, buildPublicKnowledge } from './aiAnalysis';
 import type { DecisionAnalysis } from './aiAnalysis';
+import { recordAiModelCall } from './aiTelemetry';
 
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const LOCAL_BASE_URL = 'http://192.168.150.51:3000/v1';
@@ -225,9 +226,13 @@ export async function llmFindBestPlay(
   handCombinations: CardPattern[] = legalPlays,
   handCombinationEquivalentCounts: number[] = equivalentCounts,
 ): Promise<CardPattern | null | undefined> {
+  const modelStarted = performance.now();
   const normalizedSelection = normalizeAiSelection(selection.provider, selection.model);
   const providerConfig = getProviderConfig(normalizedSelection.provider);
-  if (!providerConfig.apiKey || !normalizedSelection.model) return undefined;
+  if (!providerConfig.apiKey || !normalizedSelection.model) {
+    recordAiModelCall('unavailable', performance.now() - modelStarted);
+    return undefined;
+  }
   if (legalPlays.length === 0) return isFreePlay ? undefined : null;
 
   const systemPrompt = `你是竞技掼蛋选手，与对家合作争取双上和升级。程序保证合法性，你只负责战略选择。
@@ -325,7 +330,7 @@ export async function llmFindBestPlay(
     candidate_coverage: {
       model_actions: legalPlays.length,
       represented_equivalent_actions: representedCounts.reduce((sum, count) => sum + count, 0),
-      policy: '全量战略组合；等价实体选择合并，由本地评分保留最少损伤的代表牌',
+      policy: '按牌型分层保留的高价值战略组合；等价实体选择合并，由本地评分保留最少损伤的代表牌',
     },
     action_group_schema: ['type', 'members'],
     hand_combination_member_schema: [
@@ -347,6 +352,7 @@ export async function llmFindBestPlay(
   };
   const userPrompt = `请根据以下牌桌输入选择动作：\n${JSON.stringify(input)}\n
 输出格式：{"action_id":数字或"PASS","intent":"走牌/控权/送队友/阻击对手/整理牌型/试探/保留实力","confidence":0.00,"brief_reason":"不超过40个汉字","risk":"主要风险"}。只有跟牌时可选择PASS。`;
+  const promptCharacters = systemPrompt.length + userPrompt.length;
 
   try {
     const controller = new AbortController();
@@ -385,12 +391,16 @@ export async function llmFindBestPlay(
     }
 
     if (!response.ok) {
+      recordAiModelCall('http_error', performance.now() - modelStarted, promptCharacters);
       console.error(`[LLM AI] ${normalizedSelection.provider}/${normalizedSelection.model} API error: ${response.status}`);
       return undefined;
     }
 
     const content = data.choices?.[0]?.message?.content;
-    if (!content) return undefined;
+    if (!content) {
+      recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
+      return undefined;
+    }
     const parsed = parseModelResponse(content);
     const rawActionId = parsed.action_id ?? parsed.option_id;
     const optionId = typeof rawActionId === 'string' && /^\d+$/.test(rawActionId)
@@ -400,23 +410,30 @@ export async function llmFindBestPlay(
     const reason = typeof reasonSource === 'string' ? reasonSource.slice(0, 40) : '未提供理由';
     if (rawActionId === 'PASS' || optionId === null) {
       if (isFreePlay) {
+        recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
         console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] rejected pass during free play; using rule-based AI`);
         return undefined;
       }
+      recordAiModelCall('pass', performance.now() - modelStarted, promptCharacters);
       console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] pass; reason=${reason}`);
       return null;
     }
     if (!Number.isInteger(optionId) || optionId < 0 || optionId >= legalPlays.length) {
+      recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
       console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] invalid option=${String(optionId)}; using rule-based AI`);
       return undefined;
     }
 
+    recordAiModelCall('success', performance.now() - modelStarted, promptCharacters);
     console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] option=${optionId}; reason=${reason}`);
     return legalPlays[optionId];
   } catch (error: any) {
     if (error.name === 'AbortError') {
+      recordAiModelCall('timeout', performance.now() - modelStarted, promptCharacters);
       console.log(`[LLM AI] ${normalizedSelection.provider}/${normalizedSelection.model} timeout, using rule-based AI`);
     } else {
+      recordAiModelCall(error instanceof SyntaxError ? 'invalid_response' : 'error',
+        performance.now() - modelStarted, promptCharacters);
       console.warn(`[LLM AI] request/response error: ${error?.message || 'unknown error'}`);
     }
     return undefined;
