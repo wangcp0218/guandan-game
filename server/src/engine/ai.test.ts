@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
 import {
   compressCandidatesForModel, findBestPlay, generateLegalPlays, limitModelCandidates,
-  isForcedAiDecision, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
+  isForcedAiDecision, opponentControlStreak, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
   shouldUseLlmForDecision,
 } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
@@ -331,6 +331,53 @@ test('PASS has an explicit situational score instead of a fixed zero threshold',
     players: calm.players.map(player => player.seatIndex === 1 ? { ...player, cardCount: 2 } : player),
   });
   assert.ok(scorePass(hand, last, Rank.Two, calm) > scorePass(hand, last, Rank.Two, urgent));
+});
+
+test('opponent consecutive control creates pressure to beat a low single', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Ace], [Suit.Heart, Rank.Ace],
+    [Suit.Spade, Rank.SmallJoker], [Suit.Heart, Rank.BigJoker],
+  ]);
+  const previous = { type: PatternType.Single, cards: [{ id: 90, suit: Suit.Spade, rank: Rank.Three }],
+    rank: Rank.Three, length: 1 };
+  const last = { type: PatternType.Single, cards: [{ id: 91, suit: Suit.Spade, rank: Rank.Four }],
+    rank: Rank.Four, length: 1 };
+  const neutral = fourPlayerContext({ lastPlayPlayerIndex: 1 });
+  const longHandPlayers = neutral.players.map(player => player.seatIndex === 1
+    ? { ...player, cardCount: 18 } : player);
+  const base = fourPlayerContext({ lastPlayPlayerIndex: 1, players: longHandPlayers });
+  const controlled = fourPlayerContext({
+    lastPlayPlayerIndex: 1,
+    players: longHandPlayers,
+    actionHistory: [
+      { seatIndex: 1, action: 'play', pattern: previous },
+      { seatIndex: 2, action: 'pass' },
+      { seatIndex: 3, action: 'pass' },
+      { seatIndex: 0, action: 'pass' },
+      { seatIndex: 1, action: 'play', pattern: last },
+    ],
+  });
+  assert.equal(opponentControlStreak(controlled), 2);
+  assert.ok(scorePass(hand, last, Rank.Two, controlled) < scorePass(hand, last, Rank.Two, base));
+  assert.equal(findBestPlay(hand, last, false, Rank.Two, base), null);
+  assert.ok(findBestPlay(hand, last, false, Rank.Two, controlled));
+});
+
+test('partner lead remains protected despite a repeated public control streak', () => {
+  const hand = cards([[Suit.Spade, Rank.SmallJoker], [Suit.Heart, Rank.BigJoker]]);
+  const last = { type: PatternType.Single, cards: [{ id: 91, suit: Suit.Spade, rank: Rank.Four }],
+    rank: Rank.Four, length: 1 };
+  const context = fourPlayerContext({
+    lastPlayPlayerIndex: 2,
+    actionHistory: [
+      { seatIndex: 2, action: 'play', pattern: last },
+      { seatIndex: 3, action: 'pass' },
+      { seatIndex: 0, action: 'pass' },
+      { seatIndex: 1, action: 'pass' },
+      { seatIndex: 2, action: 'play', pattern: last },
+    ],
+  });
+  assert.equal(findBestPlay(hand, last, false, Rank.Two, context), null);
 });
 
 test('lead scoring feeds a reported partner and respects reported opponents', () => {

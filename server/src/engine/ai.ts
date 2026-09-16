@@ -299,7 +299,15 @@ export function scorePlay(
   const sequence = [PatternType.Straight, PatternType.ConsecutivePair, PatternType.Plane,
     PatternType.FlushStraight].includes(play.type);
   const stake = roundStake(context);
-  let score = play.cards.length * 120 - (sequence ? play.rank : effectiveRank(play.rank, currentLevel)) * 6;
+  // effectiveRank deliberately jumps level cards/jokers to 99/100/101 for
+  // legality comparison. Reusing that discontinuous scale as a resource cost
+  // charged a joker roughly 600 points and then charged it again below. Keep a
+  // compact strategic order here; explicit wildcard/joker costs retain their
+  // option value without making them practically unplayable.
+  const strategicRank = play.rank === currentLevel ? 15
+    : play.rank === Rank.SmallJoker ? 16
+      : play.rank === Rank.BigJoker ? 17 : play.rank;
+  let score = play.cards.length * 120 - (sequence ? play.rank : strategicRank) * 6;
   if (play.cards.length > 1) score += 100;
   if ([PatternType.Straight, PatternType.TriplePair, PatternType.ConsecutivePair, PatternType.Plane].includes(play.type)) {
     score += 100;
@@ -601,6 +609,10 @@ export function scorePass(
   let score = 250 + Math.min(150, effectiveRank(last.rank, level) * 6);
   if ((lastPlayer?.cardCount ?? 27) > 10) score += 70;
   if ((lastPlayer?.cardCount ?? 27) <= 5) score -= 260 * roundStake(context);
+  const controlStreak = opponentControlStreak(context);
+  if (lastPlayer?.relation === 'opponent' && controlStreak > 1) {
+    score -= Math.min(3, controlStreak - 1) * 140 * roundStake(context);
+  }
   if (nextPlayer?.relation === 'partner' && nextPlayer.cardCount <= 5) score += 90;
   if (nextPlayer?.relation === 'opponent' && nextPlayer.cardCount <= 5) score -= 140;
   // Holding fragile resources is valuable even when their immediate response is legal.
@@ -608,6 +620,22 @@ export function scorePass(
   if ([...counts.values()].some(cards => cards.length >= 4)) score += 35;
   if (hand.some(card => isWildCard(card, level))) score += 35;
   return score;
+}
+
+/** Number of uninterrupted plays by the current trick leader, separated only
+ * by passes. This is public tempo evidence, not hidden-card inference. */
+export function opponentControlStreak(context: AiDecisionContext): number {
+  const leader = context.lastPlayPlayerIndex;
+  if (leader < 0) return 0;
+  const history = context.actionHistory || context.recentActions;
+  let streak = 0;
+  for (let index = history.length - 1; index >= 0; index--) {
+    const action = history[index];
+    if (action.action === 'pass') continue;
+    if (action.seatIndex !== leader) break;
+    streak++;
+  }
+  return streak;
 }
 
 function materiallyBetterSimulation(
