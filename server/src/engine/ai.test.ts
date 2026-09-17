@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, PatternType, Rank, Suit } from '../../../shared/types';
 import {
-  compressCandidatesForModel, findBestPlay, generateLegalPlays, limitModelCandidates,
+  compressCandidatesForModel, enforceTeamStrategy, findBestPlay, generateLegalPlays, limitModelCandidates,
   isForcedAiDecision, opponentControlStreak, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
   shouldUseLlmForDecision,
 } from './ai';
@@ -331,6 +331,68 @@ test('PASS has an explicit situational score instead of a fixed zero threshold',
     players: calm.players.map(player => player.seatIndex === 1 ? { ...player, cardCount: 2 } : player),
   });
   assert.ok(scorePass(hand, last, Rank.Two, calm) > scorePass(hand, last, Rank.Two, urgent));
+});
+
+test('opening single play contests an opponent with the weakest loose natural single', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four],
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
+    [Suit.Spade, Rank.Six], [Suit.Heart, Rank.Six],
+    [Suit.Spade, Rank.King],
+    [Suit.Spade, Rank.Two],
+    [Suit.Spade, Rank.SmallJoker],
+    [Suit.Spade, Rank.BigJoker],
+  ]);
+  const last = {
+    type: PatternType.Single,
+    cards: [{ id: 99, suit: Suit.Spade, rank: Rank.Queen }],
+    rank: Rank.Queen,
+    length: 1,
+  };
+  const base = fourPlayerContext({ lastPlayPlayerIndex: 1 });
+  const context = fourPlayerContext({
+    lastPlayPlayerIndex: 1,
+    players: base.players.map(player => player.seatIndex === 0
+      ? { ...player, cardCount: hand.length }
+      : player.seatIndex === 1 ? { ...player, cardCount: 18 } : player),
+  });
+
+  const play = findBestPlay(hand, last, false, Rank.Three, context);
+  assert.equal(play?.type, PatternType.Single);
+  assert.equal(play?.rank, Rank.King);
+
+  const legal = generateLegalPlays(hand, Rank.Three).filter(candidate =>
+    canBeat(candidate, last, Rank.Three));
+  const guarded = enforceTeamStrategy(
+    null, legal, hand, last, false, Rank.Three, context,
+  );
+  assert.equal(guarded?.rank, Rank.King, 'an LLM PASS receives the same loose-single guard');
+});
+
+test('single PASS guard still protects a partner lead, pairs, wildcards and jokers', () => {
+  const singles = cards([
+    [Suit.Spade, Rank.King], [Suit.Spade, Rank.SmallJoker], [Suit.Spade, Rank.BigJoker],
+  ]);
+  const last = {
+    type: PatternType.Single,
+    cards: [{ id: 99, suit: Suit.Spade, rank: Rank.Queen }],
+    rank: Rank.Queen,
+    length: 1,
+  };
+  const partnerContext = fourPlayerContext({ lastPlayPlayerIndex: 2 });
+  assert.equal(findBestPlay(singles, last, false, Rank.Three, partnerContext), null);
+
+  const pairHand = cards([
+    [Suit.Spade, Rank.King], [Suit.Heart, Rank.King],
+    [Suit.Spade, Rank.SmallJoker], [Suit.Spade, Rank.BigJoker],
+  ]);
+  const opponentContext = fourPlayerContext({ lastPlayPlayerIndex: 1 });
+  const legal = generateLegalPlays(pairHand, Rank.Three).filter(candidate =>
+    canBeat(candidate, last, Rank.Three));
+  assert.equal(enforceTeamStrategy(
+    null, legal, pairHand, last, false, Rank.Three, opponentContext,
+  ), null);
 });
 
 test('opponent consecutive control creates pressure to beat a low single', () => {
