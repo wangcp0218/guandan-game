@@ -933,9 +933,8 @@ export class GameRoom {
 
       const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
       const context = this.getAiDecisionContext(playerIdx);
-      // LLM assistance is enabled by default for rooms, but findSmartPlay gates
-      // routine decisions locally. Rooms may explicitly opt out for fully
-      // deterministic rule-based play with no external dependency.
+      // Smart rooms analyze every non-forced decision, including follow vs PASS.
+      // Rooms may explicitly opt out for deterministic rule-based play.
       const pattern = this.aiUseLLM
         ? await findSmartPlay(
             hand,

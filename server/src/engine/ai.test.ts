@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Card, PatternType, Rank, Suit } from '../../../shared/types';
+import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import {
   compressCandidatesForModel, enforceTeamStrategy, findBestPlay, generateLegalPlays, limitModelCandidates,
   isForcedAiDecision, opponentControlStreak, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
@@ -473,7 +473,7 @@ test('simulation fallback requires matched samples and a conservative margin', (
   ), false);
 });
 
-test('model-call gate keeps strategic leads and endgames but skips routine follows', () => {
+test('model-call gate analyzes every non-forced decision', () => {
   const hand = cards([
     [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
     [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four],
@@ -491,7 +491,7 @@ test('model-call gate keeps strategic leads and endgames but skips routine follo
     length: 1,
   };
   const responses = all.filter(play => canBeat(play, last, Rank.Two));
-  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), false);
+  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), true);
 
   const endgame = fourPlayerContext({
     players: context.players.map(player => player.seatIndex === 1
@@ -622,4 +622,40 @@ test('a natural consecutive pair finish remains preferred', () => {
   const play = findBestPlay(hand, null, true, Rank.Two)!;
   assert.equal(play.type, PatternType.ConsecutivePair);
   assert.equal(play.cards.length, hand.length);
+});
+
+test('a loose joker takes an opponent level single to release grouped cards', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
+    [Suit.Spade, Rank.Seven], [Suit.Heart, Rank.Seven],
+    [Suit.Spade, Rank.Nine], [Suit.Heart, Rank.Nine],
+    [Suit.Spade, Rank.Jack], [Suit.Heart, Rank.Jack],
+    [Suit.Spade, Rank.SmallJoker], [Suit.Spade, Rank.BigJoker],
+  ]);
+  const last: CardPattern = { type: PatternType.Single, rank: Rank.Two, length: 1,
+    cards: [{ id: 99, suit: Suit.Club, rank: Rank.Two }] };
+  const context = fourPlayerContext({ lastPlayPlayerIndex: 1,
+    players: fourPlayerContext({}).players.map(player => ({ ...player,
+      cardCount: player.seatIndex === 0 ? hand.length : 18 })),
+  });
+  const result = findBestPlay(hand, last, false, Rank.Two, context);
+  assert.equal(result?.type, PatternType.Single);
+  assert.equal(result?.rank, Rank.SmallJoker, 'spend the weakest sufficient loose joker');
+  assert.equal(findBestPlay(hand, last, false, Rank.Two,
+    { ...context, lastPlayPlayerIndex: 2 }), null, 'do not take over a partner level single');
+  const pairedJokers = hand.map(card => card.rank === Rank.BigJoker
+    ? { ...card, rank: Rank.SmallJoker } : card);
+  assert.equal(findBestPlay(pairedJokers, last, false, Rank.Two, context), null,
+    'preserve a joker pair in a calm midgame');
+  const kingBomb = [...hand, { id: 20, rank: Rank.SmallJoker, suit: Suit.Spade },
+    { id: 21, rank: Rank.BigJoker, suit: Suit.Spade }];
+  assert.equal(findBestPlay(kingBomb, last, false, Rank.Two, context), null,
+    'preserve a king bomb in a calm midgame');
+  const responses = generateLegalPlays(hand, Rank.Two).filter(play => canBeat(play, last, Rank.Two));
+  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), true);
+  assert.equal(shouldUseLlmForDecision(hand, responses.slice(0, 1), last, false, Rank.Two, context), true,
+    'one playable response still competes with PASS');
+  assert.equal(shouldUseLlmForDecision(hand, [], last, false, Rank.Two, context), false);
+  assert.equal(shouldUseLlmForDecision(hand, responses.slice(0, 1), null, true, Rank.Two, context), false);
 });

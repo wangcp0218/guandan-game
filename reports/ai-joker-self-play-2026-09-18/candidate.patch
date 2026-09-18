@@ -1,0 +1,177 @@
+diff --git a/server/src/engine/ai.test.ts b/server/src/engine/ai.test.ts
+index da0e39d..5cad760 100644
+--- a/server/src/engine/ai.test.ts
++++ b/server/src/engine/ai.test.ts
+@@ -1,6 +1,6 @@
+ import assert from 'node:assert/strict';
+ import test from 'node:test';
+-import { Card, PatternType, Rank, Suit } from '../../../shared/types';
++import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
+ import {
+   compressCandidatesForModel, enforceTeamStrategy, findBestPlay, generateLegalPlays, limitModelCandidates,
+   isForcedAiDecision, opponentControlStreak, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
+@@ -473,7 +473,7 @@ test('simulation fallback requires matched samples and a conservative margin', (
+   ), false);
+ });
+ 
+-test('model-call gate keeps strategic leads and endgames but skips routine follows', () => {
++test('model-call gate analyzes every non-forced decision', () => {
+   const hand = cards([
+     [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+     [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four],
+@@ -491,7 +491,7 @@ test('model-call gate keeps strategic leads and endgames but skips routine follo
+     length: 1,
+   };
+   const responses = all.filter(play => canBeat(play, last, Rank.Two));
+-  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), false);
++  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), true);
+ 
+   const endgame = fourPlayerContext({
+     players: context.players.map(player => player.seatIndex === 1
+@@ -623,3 +623,39 @@ test('a natural consecutive pair finish remains preferred', () => {
+   assert.equal(play.type, PatternType.ConsecutivePair);
+   assert.equal(play.cards.length, hand.length);
+ });
++
++test('a loose joker takes an opponent level single to release grouped cards', () => {
++  const hand = cards([
++    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
++    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
++    [Suit.Spade, Rank.Seven], [Suit.Heart, Rank.Seven],
++    [Suit.Spade, Rank.Nine], [Suit.Heart, Rank.Nine],
++    [Suit.Spade, Rank.Jack], [Suit.Heart, Rank.Jack],
++    [Suit.Spade, Rank.SmallJoker], [Suit.Spade, Rank.BigJoker],
++  ]);
++  const last: CardPattern = { type: PatternType.Single, rank: Rank.Two, length: 1,
++    cards: [{ id: 99, suit: Suit.Club, rank: Rank.Two }] };
++  const context = fourPlayerContext({ lastPlayPlayerIndex: 1,
++    players: fourPlayerContext({}).players.map(player => ({ ...player,
++      cardCount: player.seatIndex === 0 ? hand.length : 18 })),
++  });
++  const result = findBestPlay(hand, last, false, Rank.Two, context);
++  assert.equal(result?.type, PatternType.Single);
++  assert.equal(result?.rank, Rank.SmallJoker, 'spend the weakest sufficient loose joker');
++  assert.equal(findBestPlay(hand, last, false, Rank.Two,
++    { ...context, lastPlayPlayerIndex: 2 }), null, 'do not take over a partner level single');
++  const pairedJokers = hand.map(card => card.rank === Rank.BigJoker
++    ? { ...card, rank: Rank.SmallJoker } : card);
++  assert.equal(findBestPlay(pairedJokers, last, false, Rank.Two, context), null,
++    'preserve a joker pair in a calm midgame');
++  const kingBomb = [...hand, { id: 20, rank: Rank.SmallJoker, suit: Suit.Spade },
++    { id: 21, rank: Rank.BigJoker, suit: Suit.Spade }];
++  assert.equal(findBestPlay(kingBomb, last, false, Rank.Two, context), null,
++    'preserve a king bomb in a calm midgame');
++  const responses = generateLegalPlays(hand, Rank.Two).filter(play => canBeat(play, last, Rank.Two));
++  assert.equal(shouldUseLlmForDecision(hand, responses, last, false, Rank.Two, context), true);
++  assert.equal(shouldUseLlmForDecision(hand, responses.slice(0, 1), last, false, Rank.Two, context), true,
++    'one playable response still competes with PASS');
++  assert.equal(shouldUseLlmForDecision(hand, [], last, false, Rank.Two, context), false);
++  assert.equal(shouldUseLlmForDecision(hand, responses.slice(0, 1), null, true, Rank.Two, context), false);
++});
+diff --git a/server/src/engine/ai.ts b/server/src/engine/ai.ts
+index afa88d3..4307337 100644
+--- a/server/src/engine/ai.ts
++++ b/server/src/engine/ai.ts
+@@ -665,6 +665,24 @@ export function scorePass(
+   const counts = getRankCounts(hand);
+   if ([...counts.values()].some(cards => cards.length >= 4)) score += 35;
+   if (hand.some(card => isWildCard(card, level))) score += 35;
++
++  // Passing a level single also gives up the chance to change the lead shape.
++  // Spend a loose joker when there are groups to release or a reported partner
++  // to feed. Do not treat a joker pair/king bomb as a disposable single, and
++  // do not assume that taking this trick guarantees consecutive control.
++  const looseJoker = hand.some(card => isJoker(card) && counts.get(card.rank)?.length === 1);
++  const partner = context.players.find(player => player.relation === 'partner' && player.finishRank === null);
++  const groupedRanks = [...counts.entries()].filter(([rank, cards]) =>
++    rank < Rank.SmallJoker && cards.length >= 2).length;
++  const canFeedPartner = partner && (partner.cardCount === 1
++    ? hand.some(card => !isJoker(card) && !isWildCard(card, level)
++      && effectiveRank(card.rank, level) < Rank.Queen && counts.get(card.rank)?.length === 1)
++    : partner.cardCount === 2 && [...counts.entries()].some(([rank, cards]) =>
++      cards.length === 2 && effectiveRank(rank, level) < Rank.Queen));
++  if (lastPlayer?.relation === 'opponent' && last.type === PatternType.Single
++    && last.rank === level && looseJoker && (groupedRanks >= 2 || canFeedPartner)) {
++    score -= 250 * roundStake(context);
++  }
+   return score;
+ }
+ 
+@@ -898,44 +916,10 @@ export function isForcedAiDecision(playableCount: number, isFreePlay: boolean):
+   return playableCount === 0 || (isFreePlay && playableCount === 1);
+ }
+ 
+-/**
+- * Spend a model call only where long-range judgement can plausibly change the
+- * deterministic result. Routine follows remain local; leads, endgames and
+- * consequential bomb decisions retain model analysis.
+- */
++/** Every non-forced decision deserves analysis, including one response vs PASS. */
+ export function shouldUseLlmForDecision(
+-  hand: Card[], legalPlays: CardPattern[], lastPattern: CardPattern | null,
+-  isFreePlay: boolean, currentLevel: number, context?: AiDecisionContext,
++  _hand: Card[], legalPlays: CardPattern[], _lastPattern: CardPattern | null,
++  isFreePlay: boolean, _currentLevel: number, _context?: AiDecisionContext,
+ ): boolean {
+-  if (isForcedAiDecision(legalPlays.length, isFreePlay)) return false;
+-  // Preserve analyzed fallback behaviour for library callers without a room
+-  // context; production room decisions always provide public context.
+-  if (!context) return true;
+-  const activePlayers = context.players.filter(player => player.finishRank === null);
+-  const minimumCards = Math.min(...activePlayers.map(player => player.cardCount));
+-  if (hand.length <= 8 || minimumCards <= 5) return true;
+-
+-  const hasDirectFinish = legalPlays.some(play => play.cards.length === hand.length);
+-  if (hasDirectFinish) return true;
+-  if (isFreePlay) {
+-    // Multiple lead shapes define the hand's route; rank-only choices inside a
+-    // single shape are handled well by deterministic low-first scoring.
+-    return new Set(legalPlays.map(play => play.type)).size > 1;
+-  }
+-
+-  const lastPlayer = context.players.find(player => player.seatIndex === context.lastPlayPlayerIndex);
+-  if (lastPlayer?.relation === 'partner') return false;
+-  if (lastPattern && isBombPattern(lastPattern)) return true;
+-  const bombs = legalPlays.filter(isBombPattern);
+-  const ordinary = legalPlays.filter(play => !isBombPattern(play));
+-  if (bombs.length > 0 && ordinary.length === 0) {
+-    const levelGap = context.teamLevels[context.selfSeatIndex % 2]
+-      - context.teamLevels[1 - context.selfSeatIndex % 2];
+-    return levelGap < 0 || (lastPlayer?.cardCount ?? 27) <= 10;
+-  }
+-
+-  // A forced choice between consuming and preserving 逢人配 is strategically
+-  // meaningful; ordinary same-type minimum follows stay local.
+-  const usesWildcard = (play: CardPattern) => play.cards.some(card => isWildCard(card, currentLevel));
+-  return legalPlays.some(usesWildcard) && legalPlays.some(play => !usesWildcard(play));
++  return !isForcedAiDecision(legalPlays.length, isFreePlay);
+ }
+diff --git a/server/src/engine/llmAi.ts b/server/src/engine/llmAi.ts
+index 5a419e2..5c775a5 100644
+--- a/server/src/engine/llmAi.ts
++++ b/server/src/engine/llmAi.ts
+@@ -245,6 +245,8 @@ export async function llmFindBestPlay(
+ 
+ 策略：出牌张数不等于收益，先比较剩余结构。比较出牌后剩余手数、小孤牌和难走的小对子；拆三张或对子后若留下小孤牌应降低优先级，若余牌仍能组成顺子等结构或直接走完则不机械惩罚。三连对、二连三不因一次出6张而自动优先。领出看减手数、后续回手和队友需求；跟牌通常用最低充分牌力。同类结构相近时先小后大，但对手报双可先用大对控权。队友牌默认不压；仅为直接走完、必要拦截或明确团队收益接管。敌方压过队友后可反压。炸弹用于阻止对手走牌、送队友或形成连续牌权，不赢低价值一轮；炸后评估续牌。逢人配优先组成强结构，残局可降低保存成本。
+ 
++跟单控权：对手出级牌时，比较用散王接管与过牌的后续收益；若接管后可转出成组牌、送报单/报双队友或阻断对手连续走牌，应积极考虑最小够用的王。区分散王、王对和四王炸的保存成本，不因王珍贵就机械过牌。大王是最大单张，即使可能被炸，也有单张控权价值；小王仍可能被大王反压，接管不保证连续出牌。队友领出的级牌仍遵循合作原则。
++
+ 残局：任一玩家≤5张时规划未来1至3手。对手报单保留单张控制，报双保留对子控制；队友报单/双时创造对应牌型。下家只剩1张且决定出单时必须出最大合法单张；下家剩2张且决定出对子时必须出最大合法对子，但不强制该牌型或强制放弃PASS。
+ 
+ 程序分析限制：remainingTurns不含对手干扰；抽样模拟不是确定胜率，样本少或接近时优先结构与本地排序；incomplete_enumeration无有效胜率。不要展示冗长推理，只输出指定JSON。`;
+diff --git a/server/src/services/GameRoom.ts b/server/src/services/GameRoom.ts
+index 1189063..6ea5776 100644
+--- a/server/src/services/GameRoom.ts
++++ b/server/src/services/GameRoom.ts
+@@ -933,9 +933,8 @@ export class GameRoom {
+ 
+       const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
+       const context = this.getAiDecisionContext(playerIdx);
+-      // LLM assistance is enabled by default for rooms, but findSmartPlay gates
+-      // routine decisions locally. Rooms may explicitly opt out for fully
+-      // deterministic rule-based play with no external dependency.
++      // Smart rooms analyze every non-forced decision, including follow vs PASS.
++      // Rooms may explicitly opt out for deterministic rule-based play.
+       const pattern = this.aiUseLLM
+         ? await findSmartPlay(
+             hand,

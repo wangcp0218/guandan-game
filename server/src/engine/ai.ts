@@ -665,6 +665,24 @@ export function scorePass(
   const counts = getRankCounts(hand);
   if ([...counts.values()].some(cards => cards.length >= 4)) score += 35;
   if (hand.some(card => isWildCard(card, level))) score += 35;
+
+  // Passing a level single also gives up the chance to change the lead shape.
+  // Spend a loose joker when there are groups to release or a reported partner
+  // to feed. Do not treat a joker pair/king bomb as a disposable single, and
+  // do not assume that taking this trick guarantees consecutive control.
+  const looseJoker = hand.some(card => isJoker(card) && counts.get(card.rank)?.length === 1);
+  const partner = context.players.find(player => player.relation === 'partner' && player.finishRank === null);
+  const groupedRanks = [...counts.entries()].filter(([rank, cards]) =>
+    rank < Rank.SmallJoker && cards.length >= 2).length;
+  const canFeedPartner = partner && (partner.cardCount === 1
+    ? hand.some(card => !isJoker(card) && !isWildCard(card, level)
+      && effectiveRank(card.rank, level) < Rank.Queen && counts.get(card.rank)?.length === 1)
+    : partner.cardCount === 2 && [...counts.entries()].some(([rank, cards]) =>
+      cards.length === 2 && effectiveRank(rank, level) < Rank.Queen));
+  if (lastPlayer?.relation === 'opponent' && last.type === PatternType.Single
+    && last.rank === level && looseJoker && (groupedRanks >= 2 || canFeedPartner)) {
+    score -= 250 * roundStake(context);
+  }
   return score;
 }
 
@@ -898,44 +916,10 @@ export function isForcedAiDecision(playableCount: number, isFreePlay: boolean): 
   return playableCount === 0 || (isFreePlay && playableCount === 1);
 }
 
-/**
- * Spend a model call only where long-range judgement can plausibly change the
- * deterministic result. Routine follows remain local; leads, endgames and
- * consequential bomb decisions retain model analysis.
- */
+/** Every non-forced decision deserves analysis, including one response vs PASS. */
 export function shouldUseLlmForDecision(
-  hand: Card[], legalPlays: CardPattern[], lastPattern: CardPattern | null,
-  isFreePlay: boolean, currentLevel: number, context?: AiDecisionContext,
+  _hand: Card[], legalPlays: CardPattern[], _lastPattern: CardPattern | null,
+  isFreePlay: boolean, _currentLevel: number, _context?: AiDecisionContext,
 ): boolean {
-  if (isForcedAiDecision(legalPlays.length, isFreePlay)) return false;
-  // Preserve analyzed fallback behaviour for library callers without a room
-  // context; production room decisions always provide public context.
-  if (!context) return true;
-  const activePlayers = context.players.filter(player => player.finishRank === null);
-  const minimumCards = Math.min(...activePlayers.map(player => player.cardCount));
-  if (hand.length <= 8 || minimumCards <= 5) return true;
-
-  const hasDirectFinish = legalPlays.some(play => play.cards.length === hand.length);
-  if (hasDirectFinish) return true;
-  if (isFreePlay) {
-    // Multiple lead shapes define the hand's route; rank-only choices inside a
-    // single shape are handled well by deterministic low-first scoring.
-    return new Set(legalPlays.map(play => play.type)).size > 1;
-  }
-
-  const lastPlayer = context.players.find(player => player.seatIndex === context.lastPlayPlayerIndex);
-  if (lastPlayer?.relation === 'partner') return false;
-  if (lastPattern && isBombPattern(lastPattern)) return true;
-  const bombs = legalPlays.filter(isBombPattern);
-  const ordinary = legalPlays.filter(play => !isBombPattern(play));
-  if (bombs.length > 0 && ordinary.length === 0) {
-    const levelGap = context.teamLevels[context.selfSeatIndex % 2]
-      - context.teamLevels[1 - context.selfSeatIndex % 2];
-    return levelGap < 0 || (lastPlayer?.cardCount ?? 27) <= 10;
-  }
-
-  // A forced choice between consuming and preserving 逢人配 is strategically
-  // meaningful; ordinary same-type minimum follows stay local.
-  const usesWildcard = (play: CardPattern) => play.cards.some(card => isWildCard(card, currentLevel));
-  return legalPlays.some(usesWildcard) && legalPlays.some(play => !usesWildcard(play));
+  return !isForcedAiDecision(legalPlays.length, isFreePlay);
 }
