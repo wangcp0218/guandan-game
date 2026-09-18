@@ -4,7 +4,7 @@ import { Card, PatternType, Rank, Suit } from '../../../shared/types';
 import {
   compressCandidatesForModel, enforceTeamStrategy, findBestPlay, generateLegalPlays, limitModelCandidates,
   isForcedAiDecision, opponentControlStreak, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
-  shouldUseLlmForDecision,
+  shouldUseLlmForDecision, remainingStructureScores,
 } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
@@ -579,4 +579,47 @@ test('plays the largest legal pair when the clockwise next player has two cards'
   const play = findBestPlay(hand, last, false, Rank.Two, context);
   assert.equal(play?.type, PatternType.Pair);
   assert.equal(play?.rank, Rank.Ace);
+});
+
+
+test('lead preserves a two-turn route instead of shedding six cards and leaving fragments', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three], [Suit.Club, Rank.Three],
+    [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four], [Suit.Club, Rank.Four],
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
+    [Suit.Spade, Rank.Six], [Suit.Heart, Rank.Six],
+  ]);
+  const play = findBestPlay(hand, null, true, Rank.Two)!;
+  assert.equal(play.type, PatternType.TriplePair);
+  const used = new Set(play.cards.map(card => card.id));
+  assert.ok(generateLegalPlays(hand.filter(card => !used.has(card.id)), Rank.Two)
+    .some(candidate => candidate.cards.length === hand.length - play.cards.length));
+});
+
+test('splitting triples is inexpensive when the residual cards form a straight', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five], [Suit.Club, Rank.Five],
+    [Suit.Spade, Rank.Six], [Suit.Heart, Rank.Six], [Suit.Club, Rank.Six],
+    [Suit.Spade, Rank.Seven], [Suit.Heart, Rank.Seven], [Suit.Club, Rank.Seven],
+    [Suit.Diamond, Rank.Eight], [Suit.Heart, Rank.Nine],
+  ]);
+  const all = generateLegalPlays(hand, Rank.Two);
+  const run = all.find(play => play.type === PatternType.ConsecutivePair)!;
+  const score = remainingStructureScores(hand, [run], all, Rank.Two).get(run)!;
+  assert.equal(score, 0, 'two-turn route with no isolated residual cards has no structural penalty');
+  const fragmented = hand.slice(0, 9);
+  const fragments = generateLegalPlays(fragmented, Rank.Two);
+  const brokenRun = fragments.find(play => play.type === PatternType.ConsecutivePair)!;
+  assert.ok(remainingStructureScores(fragmented, [brokenRun], fragments, Rank.Two).get(brokenRun)! < -400);
+});
+
+test('a natural consecutive pair finish remains preferred', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Three], [Suit.Heart, Rank.Three],
+    [Suit.Spade, Rank.Four], [Suit.Heart, Rank.Four],
+    [Suit.Spade, Rank.Five], [Suit.Heart, Rank.Five],
+  ]);
+  const play = findBestPlay(hand, null, true, Rank.Two)!;
+  assert.equal(play.type, PatternType.ConsecutivePair);
+  assert.equal(play.cards.length, hand.length);
 });

@@ -1,0 +1,544 @@
+{
+  "candidate": "WORKTREE",
+  "candidateBase": "280ee3afb7c198e0d9a9a65de94409070c4d28cb",
+  "baseline": "280ee3afb7c198e0d9a9a65de94409070c4d28cb",
+  "seedBase": 20260918,
+  "dealsPerLevel": 100,
+  "mode": "findBestPlay; no LLM; independent rounds without tribute; same deal with exchanged teams; seat 0 leads",
+  "ciMethod": "Normal approximation on independent paired-deal means (not individual rounds)",
+  "sanityPassed": true,
+  "seconds": 118.833,
+  "overall": {
+    "deals": 1300,
+    "rounds": 2600,
+    "candidateWinRate": {
+      "mean": 0.5253846153846153,
+      "ci95": [
+        0.5083096442164852,
+        0.5424595865527455
+      ]
+    },
+    "candidateMeanLevelDelta": {
+      "mean": 0.1026923076923077,
+      "ci95": [
+        0.025356884888491985,
+        0.18002773049612342
+      ]
+    },
+    "candidateDoubleWinRate": 0.24153846153846154,
+    "baselineDoubleWinRate": 0.21576923076923077,
+    "telemetry": [
+      {
+        "name": "candidate",
+        "calls": 108931,
+        "meanDecisionMs": 3.6135206825054054,
+        "leads": 19559,
+        "consecutivePairLeads": 956
+      },
+      {
+        "name": "baseline",
+        "calls": 109586,
+        "meanDecisionMs": 0.5733992867428214,
+        "leads": 19818,
+        "consecutivePairLeads": 1135
+      }
+    ],
+    "meanActions": 84.045
+  },
+  "byLevel": [
+    {
+      "level": 2,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.5,
+        "ci95": [
+          0.43770711083595465,
+          0.5622928891640454
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": -0.03,
+        "ci95": [
+          -0.33063015568144605,
+          0.2706301556814461
+        ]
+      },
+      "candidateDoubleWinRate": 0.23,
+      "baselineDoubleWinRate": 0.26,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8328,
+          "meanDecisionMs": 3.7289299109029157,
+          "leads": 1469,
+          "consecutivePairLeads": 86
+        },
+        {
+          "name": "baseline",
+          "calls": 8367,
+          "meanDecisionMs": 0.5761909184893013,
+          "leads": 1519,
+          "consecutivePairLeads": 82
+        }
+      ],
+      "meanActions": 83.475
+    },
+    {
+      "level": 3,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.545,
+        "ci95": [
+          0.47806050070655925,
+          0.6119394992934408
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.29,
+        "ci95": [
+          0.011355056668087893,
+          0.5686449433319121
+        ]
+      },
+      "candidateDoubleWinRate": 0.305,
+      "baselineDoubleWinRate": 0.2,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8323,
+          "meanDecisionMs": 3.829129515679378,
+          "leads": 1487,
+          "consecutivePairLeads": 68
+        },
+        {
+          "name": "baseline",
+          "calls": 8381,
+          "meanDecisionMs": 0.5686629034721428,
+          "leads": 1460,
+          "consecutivePairLeads": 83
+        }
+      ],
+      "meanActions": 83.52
+    },
+    {
+      "level": 4,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.52,
+        "ci95": [
+          0.4610352476457162,
+          0.5789647523542839
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.015,
+        "ci95": [
+          -0.2343486391348143,
+          0.26434863913481427
+        ]
+      },
+      "candidateDoubleWinRate": 0.215,
+      "baselineDoubleWinRate": 0.235,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8301,
+          "meanDecisionMs": 3.7830794270569816,
+          "leads": 1446,
+          "consecutivePairLeads": 82
+        },
+        {
+          "name": "baseline",
+          "calls": 8360,
+          "meanDecisionMs": 0.6047158028708634,
+          "leads": 1538,
+          "consecutivePairLeads": 83
+        }
+      ],
+      "meanActions": 83.305
+    },
+    {
+      "level": 5,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.525,
+        "ci95": [
+          0.4652913640071956,
+          0.5847086359928044
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.17,
+        "ci95": [
+          -0.10796173270521389,
+          0.4479617327052139
+        ]
+      },
+      "candidateDoubleWinRate": 0.285,
+      "baselineDoubleWinRate": 0.22,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8331,
+          "meanDecisionMs": 3.6272051567638517,
+          "leads": 1494,
+          "consecutivePairLeads": 60
+        },
+        {
+          "name": "baseline",
+          "calls": 8406,
+          "meanDecisionMs": 0.5601720862478843,
+          "leads": 1509,
+          "consecutivePairLeads": 81
+        }
+      ],
+      "meanActions": 83.685
+    },
+    {
+      "level": 6,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.505,
+        "ci95": [
+          0.4434985866960454,
+          0.5665014133039545
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": -0.08,
+        "ci95": [
+          -0.3650265583939486,
+          0.20502655839394857
+        ]
+      },
+      "candidateDoubleWinRate": 0.195,
+      "baselineDoubleWinRate": 0.235,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8355,
+          "meanDecisionMs": 3.5522146253740132,
+          "leads": 1484,
+          "consecutivePairLeads": 77
+        },
+        {
+          "name": "baseline",
+          "calls": 8475,
+          "meanDecisionMs": 0.5631842410619623,
+          "leads": 1559,
+          "consecutivePairLeads": 89
+        }
+      ],
+      "meanActions": 84.15
+    },
+    {
+      "level": 7,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.55,
+        "ci95": [
+          0.49173033777896485,
+          0.6082696622210353
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.18,
+        "ci95": [
+          -0.06742120794591183,
+          0.4274212079459118
+        ]
+      },
+      "candidateDoubleWinRate": 0.225,
+      "baselineDoubleWinRate": 0.175,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8655,
+          "meanDecisionMs": 3.657728951819654,
+          "leads": 1605,
+          "consecutivePairLeads": 66
+        },
+        {
+          "name": "baseline",
+          "calls": 8727,
+          "meanDecisionMs": 0.5702094923799623,
+          "leads": 1586,
+          "consecutivePairLeads": 92
+        }
+      ],
+      "meanActions": 86.91
+    },
+    {
+      "level": 8,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.51,
+        "ci95": [
+          0.44178999747511777,
+          0.5782100025248822
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.145,
+        "ci95": [
+          -0.16185018158605338,
+          0.4518501815860534
+        ]
+      },
+      "candidateDoubleWinRate": 0.265,
+      "baselineDoubleWinRate": 0.175,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8410,
+          "meanDecisionMs": 3.5815687684898707,
+          "leads": 1515,
+          "consecutivePairLeads": 63
+        },
+        {
+          "name": "baseline",
+          "calls": 8467,
+          "meanDecisionMs": 0.5638429874808243,
+          "leads": 1446,
+          "consecutivePairLeads": 76
+        }
+      ],
+      "meanActions": 84.385
+    },
+    {
+      "level": 9,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.515,
+        "ci95": [
+          0.45200251407934416,
+          0.5779974859206559
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.025,
+        "ci95": [
+          -0.2557934464975271,
+          0.30579344649752715
+        ]
+      },
+      "candidateDoubleWinRate": 0.225,
+      "baselineDoubleWinRate": 0.22,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8334,
+          "meanDecisionMs": 3.41047560787127,
+          "leads": 1511,
+          "consecutivePairLeads": 69
+        },
+        {
+          "name": "baseline",
+          "calls": 8398,
+          "meanDecisionMs": 0.5457564404619636,
+          "leads": 1522,
+          "consecutivePairLeads": 86
+        }
+      ],
+      "meanActions": 83.66
+    },
+    {
+      "level": 10,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.54,
+        "ci95": [
+          0.4797978623823259,
+          0.6002021376176742
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.135,
+        "ci95": [
+          -0.14002680934517253,
+          0.41002680934517255
+        ]
+      },
+      "candidateDoubleWinRate": 0.235,
+      "baselineDoubleWinRate": 0.195,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8263,
+          "meanDecisionMs": 3.369276816894554,
+          "leads": 1474,
+          "consecutivePairLeads": 71
+        },
+        {
+          "name": "baseline",
+          "calls": 8316,
+          "meanDecisionMs": 0.5324732302789762,
+          "leads": 1498,
+          "consecutivePairLeads": 79
+        }
+      ],
+      "meanActions": 82.895
+    },
+    {
+      "level": 11,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.565,
+        "ci95": [
+          0.5064728553005815,
+          0.6235271446994184
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.32,
+        "ci95": [
+          0.05442473037124901,
+          0.5855752696287511
+        ]
+      },
+      "candidateDoubleWinRate": 0.255,
+      "baselineDoubleWinRate": 0.175,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8376,
+          "meanDecisionMs": 3.7503313674785317,
+          "leads": 1546,
+          "consecutivePairLeads": 81
+        },
+        {
+          "name": "baseline",
+          "calls": 8445,
+          "meanDecisionMs": 0.6173874802841743,
+          "leads": 1520,
+          "consecutivePairLeads": 96
+        }
+      ],
+      "meanActions": 84.105
+    },
+    {
+      "level": 12,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.5,
+        "ci95": [
+          0.44256879389788656,
+          0.5574312061021135
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": -0.035,
+        "ci95": [
+          -0.2941919463457633,
+          0.2241919463457633
+        ]
+      },
+      "candidateDoubleWinRate": 0.23,
+      "baselineDoubleWinRate": 0.24,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8508,
+          "meanDecisionMs": 3.6348241864127355,
+          "leads": 1511,
+          "consecutivePairLeads": 57
+        },
+        {
+          "name": "baseline",
+          "calls": 8529,
+          "meanDecisionMs": 0.5706734170477231,
+          "leads": 1577,
+          "consecutivePairLeads": 83
+        }
+      ],
+      "meanActions": 85.185
+    },
+    {
+      "level": 13,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.55,
+        "ci95": [
+          0.4869332564546564,
+          0.6130667435453436
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.165,
+        "ci95": [
+          -0.1174056907029569,
+          0.4474056907029569
+        ]
+      },
+      "candidateDoubleWinRate": 0.235,
+      "baselineDoubleWinRate": 0.24,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8389,
+          "meanDecisionMs": 3.375086649064256,
+          "leads": 1502,
+          "consecutivePairLeads": 87
+        },
+        {
+          "name": "baseline",
+          "calls": 8420,
+          "meanDecisionMs": 0.5770049856293835,
+          "leads": 1540,
+          "consecutivePairLeads": 98
+        }
+      ],
+      "meanActions": 84.045
+    },
+    {
+      "level": 14,
+      "deals": 100,
+      "rounds": 200,
+      "candidateWinRate": {
+        "mean": 0.505,
+        "ci95": [
+          0.441940947989967,
+          0.5680590520100329
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.035,
+        "ci95": [
+          -0.2762323183083595,
+          0.34623231830835943
+        ]
+      },
+      "candidateDoubleWinRate": 0.24,
+      "baselineDoubleWinRate": 0.235,
+      "telemetry": [
+        {
+          "name": "candidate",
+          "calls": 8358,
+          "meanDecisionMs": 3.6738896198851743,
+          "leads": 1515,
+          "consecutivePairLeads": 89
+        },
+        {
+          "name": "baseline",
+          "calls": 8295,
+          "meanDecisionMs": 0.6041331292344393,
+          "leads": 1544,
+          "consecutivePairLeads": 107
+        }
+      ],
+      "meanActions": 83.265
+    }
+  ]
+}

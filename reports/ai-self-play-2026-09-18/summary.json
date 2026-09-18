@@ -1,0 +1,319 @@
+{
+  "candidate": "280ee3afb7c198e0d9a9a65de94409070c4d28cb",
+  "baseline": "8ad13ea49bf8fc5ad757a7f79cc66080376ecd4a",
+  "seedBase": 20260918,
+  "dealsPerLevel": 1000,
+  "mode": "findBestPlay; no LLM; independent rounds without tribute; same deal with exchanged teams; seat 0 leads",
+  "ciMethod": "Normal approximation on independent paired-deal means (not individual rounds)",
+  "sanityPassed": true,
+  "seconds": 352.257,
+  "overall": {
+    "deals": 13000,
+    "rounds": 26000,
+    "candidateWinRate": {
+      "mean": 0.5573846153846154,
+      "ci95": [
+        0.5534537768254644,
+        0.5613154539437664
+      ]
+    },
+    "candidateMeanLevelDelta": {
+      "mean": 0.3567692307692308,
+      "ci95": [
+        0.34053810144899954,
+        0.373000360089462
+      ]
+    },
+    "candidateDoubleWinRate": 0.28076923076923077,
+    "baselineDoubleWinRate": 0.1686923076923077,
+    "meanActions": 86.28776923076923
+  },
+  "byLevel": [
+    {
+      "level": 2,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.5505,
+        "ci95": [
+          0.5360631657978011,
+          0.5649368342021989
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.313,
+        "ci95": [
+          0.25549171979712926,
+          0.37050828020287074
+        ]
+      },
+      "candidateDoubleWinRate": 0.2675,
+      "baselineDoubleWinRate": 0.1705,
+      "meanActions": 86.558
+    },
+    {
+      "level": 3,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.572,
+        "ci95": [
+          0.5570893234937554,
+          0.5869106765062445
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.415,
+        "ci95": [
+          0.3538383028914893,
+          0.47616169710851064
+        ]
+      },
+      "candidateDoubleWinRate": 0.2725,
+      "baselineDoubleWinRate": 0.1565,
+      "meanActions": 86.317
+    },
+    {
+      "level": 4,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.56,
+        "ci95": [
+          0.545737319183826,
+          0.5742626808161742
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.371,
+        "ci95": [
+          0.3112830975113171,
+          0.4307169024886829
+        ]
+      },
+      "candidateDoubleWinRate": 0.2785,
+      "baselineDoubleWinRate": 0.1585,
+      "meanActions": 86.106
+    },
+    {
+      "level": 5,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.555,
+        "ci95": [
+          0.5414174654336812,
+          0.5685825345663189
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.3315,
+        "ci95": [
+          0.2748056847842943,
+          0.38819431521570574
+        ]
+      },
+      "candidateDoubleWinRate": 0.275,
+      "baselineDoubleWinRate": 0.173,
+      "meanActions": 85.7385
+    },
+    {
+      "level": 6,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.5555,
+        "ci95": [
+          0.5406728912206475,
+          0.5703271087793524
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.3555,
+        "ci95": [
+          0.29552572764138807,
+          0.4154742723586119
+        ]
+      },
+      "candidateDoubleWinRate": 0.292,
+      "baselineDoubleWinRate": 0.1755,
+      "meanActions": 85.9685
+    },
+    {
+      "level": 7,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.554,
+        "ci95": [
+          0.5402613740044996,
+          0.5677386259955005
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.357,
+        "ci95": [
+          0.29947433682673874,
+          0.4145256631732612
+        ]
+      },
+      "candidateDoubleWinRate": 0.2825,
+      "baselineDoubleWinRate": 0.1755,
+      "meanActions": 86.2695
+    },
+    {
+      "level": 8,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.559,
+        "ci95": [
+          0.5454112382887606,
+          0.5725887617112395
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.35,
+        "ci95": [
+          0.29309775869910726,
+          0.4069022413008927
+        ]
+      },
+      "candidateDoubleWinRate": 0.286,
+      "baselineDoubleWinRate": 0.175,
+      "meanActions": 85.9435
+    },
+    {
+      "level": 9,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.561,
+        "ci95": [
+          0.5468892480809946,
+          0.5751107519190055
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.371,
+        "ci95": [
+          0.3125522791678711,
+          0.4294477208321289
+        ]
+      },
+      "candidateDoubleWinRate": 0.279,
+      "baselineDoubleWinRate": 0.16,
+      "meanActions": 86.702
+    },
+    {
+      "level": 10,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.562,
+        "ci95": [
+          0.5483214038149525,
+          0.5756785961850476
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.385,
+        "ci95": [
+          0.32802093846461244,
+          0.4419790615353876
+        ]
+      },
+      "candidateDoubleWinRate": 0.289,
+      "baselineDoubleWinRate": 0.169,
+      "meanActions": 86.588
+    },
+    {
+      "level": 11,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.5545,
+        "ci95": [
+          0.5405260686147972,
+          0.5684739313852027
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.3645,
+        "ci95": [
+          0.3061006322829624,
+          0.42289936771703757
+        ]
+      },
+      "candidateDoubleWinRate": 0.293,
+      "baselineDoubleWinRate": 0.173,
+      "meanActions": 86.6075
+    },
+    {
+      "level": 12,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.5545,
+        "ci95": [
+          0.5399200389965247,
+          0.5690799610034752
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.351,
+        "ci95": [
+          0.29133334643246755,
+          0.4106666535675324
+        ]
+      },
+      "candidateDoubleWinRate": 0.283,
+      "baselineDoubleWinRate": 0.166,
+      "meanActions": 86.449
+    },
+    {
+      "level": 13,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.555,
+        "ci95": [
+          0.5409307319200924,
+          0.5690692680799077
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.355,
+        "ci95": [
+          0.2969610986141699,
+          0.41303890138583005
+        ]
+      },
+      "candidateDoubleWinRate": 0.281,
+      "baselineDoubleWinRate": 0.1695,
+      "meanActions": 86.2145
+    },
+    {
+      "level": 14,
+      "deals": 1000,
+      "rounds": 2000,
+      "candidateWinRate": {
+        "mean": 0.553,
+        "ci95": [
+          0.5385643311850773,
+          0.5674356688149228
+        ]
+      },
+      "candidateMeanLevelDelta": {
+        "mean": 0.3185,
+        "ci95": [
+          0.25886529743387543,
+          0.3781347025661246
+        ]
+      },
+      "candidateDoubleWinRate": 0.271,
+      "baselineDoubleWinRate": 0.171,
+      "meanActions": 86.279
+    }
+  ]
+}

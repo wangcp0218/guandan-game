@@ -6,7 +6,7 @@ import {
 import { canBeat, isBombPattern } from './compare';
 import { llmFindBestPlay } from './llmAi';
 import type { AiDecisionContext } from './llmAi';
-import { analyzeDecision, analysisKey, buildPublicKnowledge, publicControlEvidence } from './aiAnalysis';
+import { analyzeDecision, analysisKey, buildPublicKnowledge, createTurnEstimator, publicControlEvidence } from './aiAnalysis';
 import type { DecisionAnalysis, SampleResult } from './aiAnalysis';
 
 function getRankCounts(hand: Card[]): Map<number, Card[]> {
@@ -307,7 +307,8 @@ export function scorePlay(
   const strategicRank = play.rank === currentLevel ? 15
     : play.rank === Rank.SmallJoker ? 16
       : play.rank === Rank.BigJoker ? 17 : play.rank;
-  let score = play.cards.length * 120 - (sequence ? play.rank : strategicRank) * 6;
+  const sheddingValue = isFreePlay ? 30 : 120;
+  let score = play.cards.length * sheddingValue - (sequence ? play.rank : strategicRank) * 6;
   if (play.cards.length > 1) score += 100;
   if ([PatternType.Straight, PatternType.TriplePair, PatternType.ConsecutivePair, PatternType.Plane].includes(play.type)) {
     score += 100;
@@ -318,8 +319,8 @@ export function scorePlay(
   for (const [rank, selected] of playedCounts) {
     const held = handCounts.get(rank)?.length || 0;
     if (held >= 4 && selected.length < held) score -= 650;
-    else if (held === 3 && selected.length < held) score -= 80;
-    else if (held === 2 && selected.length === 1) score -= 45;
+    // Ordinary group damage is measured from the remaining combinations in
+    // orderCandidates, rather than charging every split the same fixed price.
   }
   if (!isBombPattern(play)) {
     const late = hand.length <= 10 || context?.players.some(p => p.finishRank === null && p.cardCount <= 5);
@@ -340,7 +341,7 @@ export function scorePlay(
     // Urgency decides whether a bomb is worth spending, but must never make a
     // larger sufficient bomb cheaper than a smaller one. Cancel the generic
     // shedding reward unconditionally and only discount part of the tier cost.
-    score -= play.cards.length * 120 + 100;
+    score -= play.cards.length * sheddingValue + 100;
     score -= tier * (100 + 40 * (2 - stake));
     // Apply match urgency equally to every bomb so it affects the bomb/pass
     // decision without reversing the ordering between sufficient bombs.
@@ -469,6 +470,44 @@ export function compressCandidatesForModel(
   };
 }
 
+/** Compare whole-hand routes, not just the number of cards shed now.
+ * Reuse physical candidates: a residual combination must use no played cards.
+ * The bounded estimator is an approximation when its search budget expires. */
+export function remainingStructureScores(
+  hand: Card[], plays: CardPattern[], allPlays: CardPattern[], level: number,
+  analysis?: DecisionAnalysis,
+): Map<CardPattern, number> {
+  const estimator = createTurnEstimator(hand, allPlays, performance.now() + 4);
+  const whole = analysis?.handTurns ?? estimator.whole();
+  const counts = getRankCounts(hand);
+  const groups = allPlays.filter(play => play.cards.length > 1);
+  const scores = new Map<CardPattern, number>();
+  for (const play of plays) {
+    const used = new Set(play.cards.map(card => card.id));
+    const remaining = hand.filter(card => !used.has(card.id));
+    const available = groups.filter(group => group.cards.every(card => !used.has(card.id)));
+    const groupedIds = new Set(available.flatMap(group => group.cards.map(card => card.id)));
+    const residualCounts = getRankCounts(remaining);
+    let damage = 0;
+    for (const [rank, cards] of residualCounts) {
+      // High singles/pairs are controls; low isolated cards are liabilities.
+      if (effectiveRank(rank, level) >= Rank.Queen) continue;
+      const split = cards.length < (counts.get(rank)?.length || 0);
+      if (cards.length === 1 && !groupedIds.has(cards[0].id)) {
+        damage += split ? 160 : 55;
+      } else if (cards.length === 2 && !available.some(group =>
+        group.cards.length > 2 && cards.every(card => group.cards.some(c => c.id === card.id)))) {
+        damage += split ? 65 : 25;
+      }
+    }
+    const after = analysis?.candidates[analysisKey(play)]?.remainingTurns ?? estimator.after(play);
+    // Approximate partitions carry less weight than fully searched partitions.
+    const weight = whole.exact && after.exact ? 420 : 240;
+    scores.set(play, weight * (whole.turns - after.turns - 1) - damage);
+  }
+  return scores;
+}
+
 function orderCandidates(
   plays: CardPattern[],
   hand: Card[],
@@ -476,6 +515,7 @@ function orderCandidates(
   isFreePlay: boolean,
   context?: AiDecisionContext,
   analysis?: DecisionAnalysis,
+  allPlays?: CardPattern[],
 ): CardPattern[] {
   // Evaluate retained same-type controls for every candidate before truncating
   // the model input. A higher disjoint play is potential recapture, not proof
@@ -501,12 +541,13 @@ function orderCandidates(
   const protectedCardIds = new Set(plays
     .filter(play => play.type === PatternType.FlushStraight || play.type === PatternType.KingBomb)
     .flatMap(play => play.cards.map(card => card.id)));
+  const structure = remainingStructureScores(
+    hand, plays, allPlays ?? generateLegalPlays(hand, currentLevel), currentLevel, analysis,
+  );
   const scores = new Map(plays.map(play => [
     play,
     scorePlay(play, hand, currentLevel, isFreePlay, context, protectedCardIds) + recaptureBonus(play)
-      + (analysis?.candidates[analysisKey(play)]
-        ? 180 * (analysis.handTurns.turns - analysis.candidates[analysisKey(play)].remainingTurns.turns - 1)
-        : 0),
+      + (structure.get(play) || 0),
   ]));
   return [...plays].sort((a, b) => scores.get(b)! - scores.get(a)!);
 }
@@ -578,7 +619,8 @@ export function findBestPlay(
   currentLevel: number,
   context?: AiDecisionContext,
 ): CardPattern | null {
-  let legalPlays = generateLegalPlays(hand, currentLevel);
+  const allPlays = generateLegalPlays(hand, currentLevel);
+  let legalPlays = allPlays;
 
   if (!isFreePlay && lastPattern) {
     legalPlays = legalPlays.filter(p => canBeat(p, lastPattern, currentLevel));
@@ -586,7 +628,7 @@ export function findBestPlay(
 
   if (legalPlays.length === 0) return null;
   legalPlays = dedupeStrategicPlays(legalPlays);
-  const ordered = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context);
+  const ordered = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context, undefined, allPlays);
   if (!isFreePlay && context) {
     const singleResponse = preferredOpponentSingleResponse(
       legalPlays, hand, lastPattern, currentLevel, context,
@@ -786,7 +828,7 @@ export async function findSmartPlay(
   // declared strategy, with equivalent deck-copy/suit choices compressed.
   const completeLegalPlays = legalPlays;
   const compressed = limitModelCandidates(compressCandidatesForModel(
-    orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context),
+    orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context, undefined, allPlays),
     currentLevel,
   ));
   legalPlays = retainNextPlayerReportMaximum(
@@ -805,7 +847,7 @@ export async function findSmartPlay(
     hand, allPlays, legalPlays, isFreePlay ? null : lastPattern,
     currentLevel, context, findBestPlay,
   );
-  legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context, analysis);
+  legalPlays = orderCandidates(legalPlays, hand, currentLevel, isFreePlay, context, analysis, allPlays);
   equivalentCounts = legalPlays.map(play => equivalentCountByPlay.get(play) || 1);
   let fallbackResult = (isFreePlay || ruleResult) ? legalPlays[0] || ruleResult : null;
   // Do not let one lucky hidden-hand sample override the baseline. Compare

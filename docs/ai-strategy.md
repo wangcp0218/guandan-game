@@ -64,6 +64,11 @@
 - `npm run benchmark:ai -w server -- 100` 使用固定种子发牌，让候选策略和基线策略在同一份牌上交换队伍，
   输出平均升级收益、胜率和双上率。默认 runner 使用相同策略做对称性自检；
   对比新旧策略时调用 `evaluateStrategies(candidate, baseline)`。
+- `node scripts/compare-ai-revisions.cjs 1000 reports/ai-self-play-2026-09-18 280ee3a 8ad13ea`
+  从两个提交建立临时源码快照并编译，使用各自的 `findBestPlay` 对战。
+  每级牌（2–A）生成 1,000 组固定种子牌，交换队伍共 26,000 局；输出逐局 JSONL、
+  分级牌汇总及以配对发牌为统计单位的近似 95% 置信区间。最多使用 4 个计算线程。
+  此评估不调用大模型，采用无进贡的独立单局，不等同于完整升级比赛或智能 AI 实战。
 - 生产进程只累计脱敏指标：决策数、智能决策数、异常数、决策/模型耗时、prompt 字符数和模型结果分类。
   不记录手牌、prompt、玩家或房间标识；每 100 次 AI 决策输出一次汇总。
 
