@@ -43,10 +43,10 @@ export function shuffledDeal(seed: number): Card[][] {
 
 /** Complete one no-tribute round. Each policy receives only its own hand and
  * public history; the harness never passes another seat's cards in context. */
-export function simulateEvaluationRound(
-  initialHands: Card[][], level: Rank, strategies: [ChoosePlay, ChoosePlay, ChoosePlay, ChoosePlay],
+function* evaluationRound(
+  initialHands: Card[][], level: Rank,
   maxSteps = 800,
-): EvaluationRound {
+): Generator<Parameters<ChoosePlay>, EvaluationRound, CardPattern | null> {
   const hands = initialHands.map(cards => [...cards]);
   const history: AiRecentAction[] = [];
   const finishes: number[] = [];
@@ -82,7 +82,7 @@ export function simulateEvaluationRound(
   });
 
   for (let step = 1; step <= maxSteps; step++) {
-    const action = strategies[seat](hands[seat], trick, !trick, level, contextFor(seat));
+    const action: CardPattern | null = yield [hands[seat], trick, !trick, level, contextFor(seat)];
     if (action) {
       if (!canBeat(action, trick, level)) throw new Error(`strategy returned illegal pattern at step ${step}`);
       const ids = new Set(action.cards.map(card => card.id));
@@ -128,6 +128,29 @@ export function simulateEvaluationRound(
     }
   }
   throw new Error(`evaluation round exceeded ${maxSteps} actions`);
+}
+
+export function simulateEvaluationRound(initialHands: Card[][], level: Rank,
+  strategies: [ChoosePlay, ChoosePlay, ChoosePlay, ChoosePlay], maxSteps = 800): EvaluationRound {
+  const game = evaluationRound(initialHands, level, maxSteps);
+  let step = game.next();
+  while (!step.done) {
+    const args = step.value;
+    step = game.next(strategies[args[4].selfSeatIndex](...args));
+  }
+  return step.value;
+}
+
+export type EvaluationPolicy = (...args: Parameters<ChoosePlay>) => ReturnType<ChoosePlay> | Promise<ReturnType<ChoosePlay>>;
+export async function simulatePolicyRound(initialHands: Card[][], level: Rank,
+  teams: [EvaluationPolicy, EvaluationPolicy]): Promise<EvaluationRound> {
+  const game = evaluationRound(initialHands, level);
+  let step = game.next();
+  while (!step.done) {
+    const args = step.value;
+    step = game.next(await teams[args[4].selfSeatIndex % 2](...args));
+  }
+  return step.value;
 }
 
 /** Paired-seat evaluation cancels deal advantage: each strategy plays both

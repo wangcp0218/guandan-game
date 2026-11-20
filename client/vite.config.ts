@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -22,21 +22,27 @@ function resolveGitVersion() {
   }
 }
 
-export default defineConfig({
-  plugins: [react()],
-  define: {
-    __GIT_VERSION__: JSON.stringify(resolveGitVersion()),
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      '/socket.io': {
-        target: 'http://localhost:3000',
-        ws: true,
+export default defineConfig(({ command, mode }) => {
+  const env = loadEnv(mode, repositoryRoot, '');
+  const base = process.env.VITE_BASE_PATH || env.VITE_BASE_PATH
+    || (command === 'build' ? process.env.PUBLIC_BASE_PATH || env.PUBLIC_BASE_PATH : '') || '/';
+  return {
+    base: base.endsWith('/') ? base : base + '/',
+    plugins: [react()],
+    define: {
+      __GIT_VERSION__: JSON.stringify(resolveGitVersion()),
+    },
+    server: {
+      port: 5173,
+      proxy: {
+        '/socket.io': {
+          target: 'http://localhost:3000',
+          ws: true,
+        },
       },
     },
-  },
-  build: {
-    outDir: 'dist',
-  },
+    build: {
+      outDir: 'dist',
+    },
+  };
 });

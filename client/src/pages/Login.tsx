@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { GIT_VERSION } from '../buildInfo';
@@ -10,11 +10,14 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth, isLoggedIn } = useAuthStore();
+  const requestedNext = searchParams.get('next');
+  const nextPath = requestedNext?.startsWith('/game/') ? requestedNext : '/lobby';
 
   useEffect(() => {
-    if (isLoggedIn) navigate('/lobby');
-  }, [isLoggedIn]);
+    if (isLoggedIn) navigate(nextPath);
+  }, [isLoggedIn, navigate, nextPath]);
 
   const handleSubmit = () => {
     if (!username || !password) {
@@ -34,7 +37,7 @@ export default function Login() {
 
     socket.once(successEvent, (data: any) => {
       setAuth(data.userId, data.username, data.token, data.level || 2);
-      navigate('/lobby');
+      navigate(nextPath);
     });
 
     socket.once(errorEvent, (data: any) => {

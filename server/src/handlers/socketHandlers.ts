@@ -2,13 +2,14 @@ import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'node:crypto';
 import { RoomManager } from '../services/RoomManager';
 import { GameRoom } from '../services/GameRoom';
 import { createUser, findUserByUsername, findUserById, saveGameRecord } from '../db/database';
 import { fetchAvailableAiModels, normalizeAiSelection } from '../engine/llmAi';
 import type { AiProvider } from '../../../shared/types';
 
-const JWT_SECRET = 'oowsp-game-server-secret-2024';
+const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 const roomManager = new RoomManager();
 
 interface AuthSocket extends Socket {
@@ -73,7 +74,7 @@ export function setupSocketHandlers(io: Server) {
     });
 
     socket.on('get_ai_models', async (data: { provider?: AiProvider; requestId?: number }) => {
-      const provider: AiProvider = data.provider === 'local' ? 'local' : 'deepseek';
+      const provider = normalizeAiSelection(data.provider, undefined).provider;
       if (!socket.userId) {
         socket.emit('ai_models_result', {
           provider,
@@ -116,7 +117,12 @@ export function setupSocketHandlers(io: Server) {
       socket.emit('room_list', roomManager.getRoomList());
     });
 
-    socket.on('join_room', (data: { roomId: string; password?: string }) => {
+    socket.on('join_room', (data: {
+      roomId: string;
+      password?: string;
+      inviterId?: string;
+      preferredRelation?: 'partner' | 'opponent';
+    }) => {
       if (!socket.userId) {
         socket.emit('error', { message: '请先登录' });
         return;
@@ -157,7 +163,21 @@ export function setupSocketHandlers(io: Server) {
 
       const user = findUserById(socket.userId);
       const alreadyInRoom = room.hasPlayer(socket.userId);
-      const idx = room.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
+      let preferredSeatIndex: number | undefined;
+      if (!alreadyInRoom && (data.inviterId || data.preferredRelation)) {
+        if (!data.inviterId || !['partner', 'opponent'].includes(data.preferredRelation || '')) {
+          socket.emit('error', { message: '邀请信息无效，请重新打开邀请链接' });
+          return;
+        }
+        const resolved = room.resolveInviteSeat(data.inviterId, data.preferredRelation!);
+        if (!resolved.success) {
+          socket.emit('error', { message: resolved.error });
+          return;
+        }
+        preferredSeatIndex = resolved.seatIndex;
+      }
+      const idx = room.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket,
+        false, preferredSeatIndex);
       if (idx < 0) {
         socket.emit('error', { message: '房间已满' });
         return;

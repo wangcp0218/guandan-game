@@ -44,3 +44,21 @@ test('follow with a lower triple retaining the higher triple as potential recapt
   assert.equal(result.rank, 4);
   assert.equal(result.cards.length, 3);
 });
+
+test('leading hint does not break a bomb for the longest straight', () => {
+  const room = new GameRoom('hint-lead', 'p0');
+  for (let i = 0; i < 4; i++) room.addPlayer(`p${i}`, `P${i}`, 2, null);
+  const deck = createDeck();
+  const take = (rank: number, count: number) => deck.filter(c => c.rank === rank).slice(0, count);
+  const hand = [...take(4, 1), ...take(5, 1), ...take(6, 1), ...take(7, 1), ...take(8, 1),
+    ...take(9, 4), ...take(13, 1)];
+  try {
+    room.startGame();
+    room.state!.currentPlayerIndex = 0;
+    room.hands.set('p0', hand);
+    const hint = room.getHintCards('p0', []);
+    assert.ok(hint.length > 0);
+    assert.ok(!hint.some(card => card.rank === 9),
+      `first hint broke the four-nines bomb: ${hint.map(card => card.rank).join(',')}`);
+  } finally { room.clearPlayers(); }
+});

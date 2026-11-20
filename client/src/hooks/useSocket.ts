@@ -19,6 +19,7 @@ export function useSocket() {
     }
 
     const socket = io(window.location.origin, {
+      path: `${import.meta.env.BASE_URL}socket.io`,
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 10,

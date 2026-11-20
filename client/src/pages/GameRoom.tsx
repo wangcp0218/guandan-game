@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
 import { GameState, GamePhase, Card, CardPattern, PlayerInfo as PlayerInfoType, RoundResult, SpectatorHands } from '../sharedTypes';
@@ -10,12 +10,17 @@ import PlayArea, { PlayerAction } from '../components/PlayArea';
 import SpectatorHand from '../components/SpectatorHand';
 import CardComponent from '../components/CardComponent';
 
+type InviteRelation = 'partner' | 'opponent';
+
 export default function GameRoom() {
   const patternName = (type: string) => ({ single: '单张', pair: '对子', triple: '三张', triple_pair: '三带二', straight: '顺子', consecutive_pair: '三连对', plane: '二连三', flush_straight: '同花顺', king_bomb: '四王炸' }[type] || type.replace('bomb', '炸弹·'));
   const { roomId } = useParams<{ roomId: string }>();
   const [searchParams] = useSearchParams();
   const spectatorMode = searchParams.get('spectator') === '1';
+  const inviteInviterId = searchParams.get('inviter');
+  const requiresRelationChoice = searchParams.get('invite') === '1' && !!inviteInviterId && !spectatorMode;
   const navigate = useNavigate();
+  const location = useLocation();
   const { userId, isLoggedIn, logout } = useAuthStore();
   const {
     gameState, setGameState, mySeatIndex, setMySeatIndex,
@@ -23,8 +28,18 @@ export default function GameRoom() {
     roundResult, setRoundResult, reset,
   } = useGameStore();
 
+  const [landscapeMode, setLandscapeMode] = useState(() => {
+    try { return localStorage.getItem('guandan-landscape') === '1'; } catch { return false; }
+  });
+  const toggleLandscape = () => {
+    const next = !landscapeMode;
+    setLandscapeMode(next);
+    try { localStorage.setItem('guandan-landscape', next ? '1' : '0'); } catch { /* Storage is optional. */ }
+  };
+
   const [playerActions, setPlayerActions] = useState<Record<string, PlayerAction>>({});
   const [errorMsg, setErrorMsg] = useState('');
+  const [reportNotice, setReportNotice] = useState('');
   const [waiting, setWaiting] = useState(!gameState || gameState.phase === 'waiting');
   const [selectedSeatPlayerId, setSelectedSeatPlayerId] = useState<string | null>(null);
   const [spectatorHands, setSpectatorHands] = useState<SpectatorHands>({});
@@ -33,6 +48,128 @@ export default function GameRoom() {
   const [spectatorDialogOpen, setSpectatorDialogOpen] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const [actionSecondsLeft, setActionSecondsLeft] = useState<number | null>(null);
+  const [inviteNotice, setInviteNotice] = useState('');
+  const [joinPassword, setJoinPassword] = useState('');
+  const [joinPasswordError, setJoinPasswordError] = useState('');
+  const [passwordPromptOpen, setPasswordPromptOpen] = useState(false);
+  const [preferredRelation, setPreferredRelation] = useState<InviteRelation | null>(null);
+  const [relationPromptOpen, setRelationPromptOpen] = useState(requiresRelationChoice);
+  const [relationError, setRelationError] = useState('');
+
+  const buildShareUrl = () => {
+    const url = new URL(`game/${encodeURIComponent(roomId || '')}`, new URL(import.meta.env.BASE_URL, window.location.origin));
+    url.searchParams.set('invite', '1');
+    if (waiting && userId) url.searchParams.set('inviter', userId);
+    if (!waiting) url.searchParams.set('spectator', '1');
+    return url.toString();
+  };
+
+  const copyInviteLink = async (url: string) => {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(url);
+  };
+
+  const handleShareRoom = async () => {
+    const url = buildShareUrl();
+    const shareData = {
+      title: waiting ? '加入我的掼蛋牌局' : '观看我的掼蛋牌局',
+      text: waiting ? '点击链接登录后加入房间，房主开局时会自动补 AI。' : '点击链接登录后进入房间观战。',
+      url,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        setInviteNotice('邀请已打开，可以发送给朋友');
+      } else {
+        await copyInviteLink(url);
+        setInviteNotice('邀请链接已复制');
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return;
+      try {
+        await copyInviteLink(url);
+        setInviteNotice('邀请链接已复制');
+      } catch {
+        setInviteNotice(`复制失败，请分享当前地址：${url}`);
+      }
+    }
+  };
+
+  const submitRoomPassword = () => {
+    if (!joinPassword.trim()) {
+      setJoinPasswordError('请输入房间密码');
+      return;
+    }
+    setJoinPasswordError('');
+    getSocket()?.emit(spectatorMode ? 'join_spectator' : 'join_room', {
+      roomId,
+      password: joinPassword,
+      inviterId: preferredRelation ? inviteInviterId : undefined,
+      preferredRelation: preferredRelation || undefined,
+    });
+  };
+
+  const chooseInviteRelation = (relation: InviteRelation) => {
+    setRelationError('');
+    setPreferredRelation(relation);
+    setRelationPromptOpen(false);
+  };
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket || !isLoggedIn) return;
+    let audio: AudioContext | undefined;
+    const unlockSound = () => {
+      try {
+        audio ??= new AudioContext();
+        void audio.resume().catch(() => {});
+      } catch { /* Visual reports remain available if audio is unsupported. */ }
+    };
+    const onReport = ({ playerId, count }: { playerId: string; count: number }) => {
+      if (count <= 0) return;
+      const player = useGameStore.getState().gameState?.players.find(p => p.id === playerId);
+      setReportNotice(`${player?.name || '玩家'}${count === 1 ? '报单' : count === 2 ? '报双' : '报牌'}：剩余 ${count} 张`);
+      if (!audio || audio.state !== 'running') return;
+      const now = audio.currentTime;
+      [660, 880].forEach((frequency, index) => {
+        const tone = audio!.createOscillator();
+        const volume = audio!.createGain();
+        const start = now + index * 0.17;
+        tone.frequency.value = frequency;
+        volume.gain.setValueAtTime(0, start);
+        volume.gain.linearRampToValueAtTime(0.12, start + 0.015);
+        volume.gain.exponentialRampToValueAtTime(0.001, start + 0.14);
+        tone.connect(volume);
+        volume.connect(audio!.destination);
+        tone.start(start);
+        tone.stop(start + 0.15);
+      });
+    };
+    const clearReport = () => setReportNotice('');
+    window.addEventListener('pointerdown', unlockSound);
+    window.addEventListener('keydown', unlockSound);
+    socket.on('card_count_report', onReport);
+    socket.on('game_started', clearReport);
+    return () => {
+      window.removeEventListener('pointerdown', unlockSound);
+      window.removeEventListener('keydown', unlockSound);
+      socket.off('card_count_report', onReport);
+      socket.off('game_started', clearReport);
+      if (audio) void audio.close().catch(() => {});
+    };
+  }, [roomId, spectatorMode, isLoggedIn]);
+
+  useEffect(() => {
+    if (!reportNotice) return;
+    const timer = window.setTimeout(() => setReportNotice(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [reportNotice]);
+
+  useEffect(() => {
+    if (!inviteNotice) return;
+    const timer = window.setTimeout(() => setInviteNotice(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [inviteNotice]);
 
   useEffect(() => {
     const deadline = gameState?.actionDeadline;
@@ -53,16 +190,26 @@ export default function GameRoom() {
 
   useEffect(() => {
     if (!isLoggedIn) {
-      navigate('/');
+      const next = `${location.pathname}${location.search}`;
+      navigate(`/?next=${encodeURIComponent(next)}`);
       return;
     }
 
     const socket = getSocket();
     if (!socket) return;
 
-    socket.emit(spectatorMode ? 'join_spectator' : 'join_room', { roomId });
+    if (!requiresRelationChoice || preferredRelation) {
+      socket.emit(spectatorMode ? 'join_spectator' : 'join_room', {
+        roomId,
+        inviterId: preferredRelation ? inviteInviterId : undefined,
+        preferredRelation: preferredRelation || undefined,
+      });
+    }
 
     const onGameState = (state: GameState) => {
+      setPasswordPromptOpen(false);
+      setRelationPromptOpen(false);
+      setJoinPasswordError('');
       setGameState(state);
       setDeclarations([]);
       setWaiting(state.phase === 'waiting');
@@ -144,6 +291,17 @@ export default function GameRoom() {
 
 
     const onError = (data: { message: string }) => {
+      if (data.message === '房间密码错误') {
+        setPasswordPromptOpen(true);
+        setJoinPasswordError(current => current ? '密码错误，请重试' : '该房间需要密码');
+        return;
+      }
+      if (preferredRelation && (data.message.includes('邀请人') || data.message.includes('座位')
+        || data.message.includes('选择阵营') || data.message.includes('邀请信息'))) {
+        setRelationError(data.message);
+        setRelationPromptOpen(true);
+        return;
+      }
       setErrorMsg(data.message);
       setTimeout(() => setErrorMsg(''), 3000);
     };
@@ -184,7 +342,8 @@ export default function GameRoom() {
       socket.off('hint_result', onHintResult);
       socket.off('spectator_removed', onSpectatorRemoved);
     };
-  }, [roomId, spectatorMode]);
+  }, [roomId, spectatorMode, isLoggedIn, userId, location.pathname, location.search,
+    requiresRelationChoice, inviteInviterId, preferredRelation]);
 
   useEffect(() => {
     if (!gameState || !userId || spectatorMode) return;
@@ -307,7 +466,10 @@ export default function GameRoom() {
   };
 
   return (
+    <div className={`game-viewport${landscapeMode ? ' prefer-landscape' : ''}`}>
     <div className={`game-room${waiting ? ' is-waiting' : ''}${isSpectator ? ' is-spectator' : ''}`} style={styles.container}>
+      {reportNotice && <div className="card-report-notice" role="status" aria-live="polite">{reportNotice}</div>}
+      {inviteNotice && <div style={styles.inviteNotice} role="status" aria-live="polite">{inviteNotice}</div>}
       <div className="game-table" style={styles.table}>
         <div className="duel-scoreboard" aria-label="双方当前级牌">
           <div className={`duel-score-team ${isSpectator ? (leadingTeam === 0 ? 'is-leading' : 'is-trailing') : (ownIsLeading ? 'is-leading' : 'is-trailing')}`}>
@@ -337,6 +499,13 @@ export default function GameRoom() {
             观战 {gameState?.spectators.length || 0}
           </button>
           <div className="room-exit-actions">
+            <button type="button" className="btn-secondary" onClick={handleShareRoom}>
+              {waiting ? '邀请朋友' : '分享观战'}
+            </button>
+            <button type="button" className="btn-secondary orientation-toggle"
+              aria-pressed={landscapeMode} onClick={toggleLandscape}>
+              {landscapeMode ? '竖屏' : '横屏'}
+            </button>
             <button
               className="btn-danger"
               onClick={handleLeaveRoom}
@@ -589,6 +758,52 @@ export default function GameRoom() {
           </div>
         </div>}
 
+        {passwordPromptOpen && (
+          <div style={styles.modal}>
+            <div style={{ ...styles.modalContent, width: 'min(360px, calc(100vw - 32px))' }}>
+              <h3 style={{ marginBottom: 10 }}>输入房间密码</h3>
+              <p style={{ marginBottom: 14, color: 'rgba(255,255,255,.72)', fontSize: 13 }}>
+                {spectatorMode ? '输入密码后进入观战' : '输入密码后加入朋友的牌局'}
+              </p>
+              <input
+                autoFocus
+                type="password"
+                value={joinPassword}
+                onChange={event => setJoinPassword(event.target.value)}
+                onKeyDown={event => event.key === 'Enter' && submitRoomPassword()}
+                placeholder="房间密码"
+                style={{ width: '100%', marginBottom: 10 }}
+              />
+              {joinPasswordError && <p style={{ color: '#ff8b8b', fontSize: 13, marginBottom: 10 }}>{joinPasswordError}</p>}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button type="button" className="btn-primary" onClick={submitRoomPassword}>进入房间</button>
+                <button type="button" className="btn-secondary" onClick={() => navigate('/lobby')}>返回大厅</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {relationPromptOpen && (
+          <div style={styles.modal}>
+            <div style={{ ...styles.modalContent, width: 'min(390px, calc(100vw - 32px))' }}>
+              <h3 style={{ marginBottom: 10 }}>选择和朋友的阵营</h3>
+              <p style={{ marginBottom: 14, color: 'rgba(255,255,255,.72)', fontSize: 13 }}>
+                掼蛋中坐在邀请人对面就是同队，左右邻座是对手。
+              </p>
+              {relationError && <p style={{ color: '#ff8b8b', fontSize: 13, marginBottom: 12 }}>{relationError}</p>}
+              <div style={{ display: 'grid', gap: 10 }}>
+                <button type="button" className="btn-primary" onClick={() => chooseInviteRelation('partner')}>
+                  和邀请人同队（坐对家）
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => chooseInviteRelation('opponent')}>
+                  作为邀请人的对手（坐左右）
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => navigate('/lobby')}>返回大厅</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Round result modal */}
         {declarations.length > 0 && <div style={styles.modal}><div style={{ ...styles.modalContent, maxHeight: '80vh', overflowY: 'auto' }}>
           <h3>确认逢人配替代方式</h3>
@@ -607,7 +822,8 @@ export default function GameRoom() {
               <p style={{ marginBottom: 8 }}>
                 排名: {roundResult.rankings.map(r => {
                   const p = gameState?.players.find(pl => pl.id === r.playerId);
-                  return `${p?.name || '?'} 第${r.rank}名`;
+                  const unfinished = r.rank === 4 && roundResult.rankings.filter(entry => entry.rank === 4).length > 1;
+                  return `${p?.name || '?'} ${unfinished ? '未出完' : `第${r.rank}名`}`;
                 }).join(' | ')}
               </p>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16 }}>
@@ -664,6 +880,7 @@ export default function GameRoom() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }
@@ -729,5 +946,20 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center',
     boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
     border: '1px solid rgba(255,255,255,0.1)',
+  },
+  inviteNotice: {
+    position: 'fixed',
+    top: 12,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 260,
+    maxWidth: 'min(560px, calc(100vw - 24px))',
+    padding: '9px 16px',
+    borderRadius: 9,
+    background: 'rgba(11, 50, 31, .96)',
+    border: '1px solid rgba(255, 214, 107, .55)',
+    color: '#ffe09a',
+    fontSize: 13,
+    overflowWrap: 'anywhere',
   },
 };

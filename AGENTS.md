@@ -39,17 +39,17 @@ Uses JSON files at `data/users.json` and `data/records.json` (no native modules 
 | `server/src/engine/patterns.ts` | 18 pattern types, identification, 逢人配(wild card) substitution |
 | `server/src/engine/compare.ts` | Pattern comparison, bomb ranking |
 | `server/src/engine/rules.ts` | Level system, tribute, partner logic |
-| `server/src/engine/ai.ts` | `findBestPlay` (sync rules, default path), `findSmartPlay` (async LLM, opt-in per room) |
-| `server/src/engine/llmAi.ts` | DeepSeek API integration, only used when the room opts into `aiUseLLM` |
+| `server/src/engine/ai.ts` | `findBestPlay` provides the synchronous heuristic. `findSmartPlay` selects the room action using team analysis and optional model advice. |
+| `server/src/engine/llmAi.ts` | Fueternal HW DeepSeek, Qwen and official DeepSeek model integration for rooms with `aiUseLLM` enabled |
 
 ### AI flow (critical)
 
-`findSmartPlay` is the default path in `GameRoom.aiPlay()` (`aiUseLLM === true`) and uses the room's selected model. `findBestPlay` is the deterministic fallback and is used directly only when the room explicitly disables 智能 AI. Strategic analysis/model calls are skipped only for a truly forced action. Every player, including AI, has a 90-second watchdog; model requests have their own shorter timeout, and delayed results are discarded using a state snapshot.
+`GameRoom.aiPlay()` uses `findSmartPlay` for both local and model-assisted play. A forced action returns immediately. Otherwise the engine prepares a local team decision first. When enabled, it asks the room's selected model, tries HW DeepSeek, Qwen, then official DeepSeek on failure (the selected provider goes first), and compares a valid proposal with the prepared decision. The 90-second watchdog can use that decision, including a pass. Turn identity prevents late model results from playing on a later turn.
 
 ### GameRoom turn flow (where bugs hide)
 
 ```
-startTurn → (AI: setTimeout 500ms → aiPlay → findBestPlay | findSmartPlay → playCards)
+startTurn → (AI: setTimeout 500ms → aiPlay → findSmartPlay → playCards | handlePass)
            → (all players: 90s watchdog; model request: 20s timeout)
 
 playCards → advanceTurn → broadcastState → startTurn()  ← MUST call startTurn!

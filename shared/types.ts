@@ -92,7 +92,7 @@ export interface TributeExchange {
   returnCard: Card | null;
 }
 
-export type AiProvider = 'deepseek' | 'local';
+export type AiProvider = 'deepseek' | 'local' | 'fueternal';
 
 export interface AiModelSelection {
   provider: AiProvider;

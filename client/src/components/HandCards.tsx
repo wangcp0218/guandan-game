@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Card, Rank, Suit } from '../sharedTypes';
 import CardComponent from './CardComponent';
 
@@ -17,7 +17,63 @@ function stackOffset(index: number) {
   return `calc(${Array.from({ length: index }, () => 'var(--hand-stack-rise)').join(' + ')})`;
 }
 
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 10;
+const SUPPRESS_CLICK_MS = 600;
+
 export default function HandCards({ cards, selectedIds, onToggle, onToggleStack, currentLevel, groupBySuit = false }: Props) {
+  // Touch long-press selects the whole stack; desktop keeps right-click. Hooks
+  // must run before the empty-hand early return below.
+  const longPress = useRef<{
+    timer?: number;
+    x: number;
+    y: number;
+    suppressUntil: number;
+    cardId: number;
+    pointerType: string;
+  }>({ x: 0, y: 0, suppressUntil: 0, cardId: -1, pointerType: '' });
+
+  const clearLongPress = () => {
+    if (longPress.current.timer !== undefined) {
+      clearTimeout(longPress.current.timer);
+      longPress.current.timer = undefined;
+    }
+  };
+  useEffect(() => clearLongPress, []);
+
+  const startLongPress = (event: React.PointerEvent, group: Card[], cardId: number) => {
+    const state = longPress.current;
+    state.suppressUntil = 0;
+    state.pointerType = event.pointerType;
+    if (event.pointerType === 'mouse') return;
+    state.x = event.clientX;
+    state.y = event.clientY;
+    state.cardId = cardId;
+    clearLongPress();
+    state.timer = window.setTimeout(() => {
+      state.timer = undefined;
+      state.suppressUntil = Date.now() + SUPPRESS_CLICK_MS;
+      onToggleStack(group.map(({ id }) => id));
+    }, LONG_PRESS_MS);
+  };
+  const moveLongPress = (event: React.PointerEvent) => {
+    const state = longPress.current;
+    if (state.timer === undefined) return;
+    if (Math.hypot(event.clientX - state.x, event.clientY - state.y) > LONG_PRESS_SLOP_PX) clearLongPress();
+  };
+  const toggleSingle = (cardId: number) => {
+    const state = longPress.current;
+    if (Date.now() < state.suppressUntil && state.cardId === cardId) return;
+    onToggle(cardId);
+  };
+  const toggleStack = (group: Card[]) => {
+    // Android fires contextmenu during a touch long-press; the pointer timer
+    // already toggled the stack, so only mouse right-click acts here.
+    const type = longPress.current.pointerType;
+    if (type === 'touch' || type === 'pen') return;
+    onToggleStack(group.map(({ id }) => id));
+  };
+
   if (cards.length === 0) return null;
 
   const groupKey = (card: Card) => {
@@ -97,12 +153,16 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
                   // wrapper above the entire stack hides the middle cards in 3+ stacks.
                   zIndex: group.length - cardIndex,
                 }}
+                onPointerDown={event => startLongPress(event, group, card.id)}
+                onPointerMove={moveLongPress}
+                onPointerUp={clearLongPress}
+                onPointerCancel={clearLongPress}
               >
                 <CardComponent
                   card={card}
                   selected={selected}
-                  onClick={() => onToggle(card.id)}
-                  onContextMenu={() => onToggleStack(group.map(({ id }) => id))}
+                  onClick={() => toggleSingle(card.id)}
+                  onContextMenu={() => toggleStack(group)}
                   isLevelCard={card.rank === currentLevel}
                   size="hand"
                 />
