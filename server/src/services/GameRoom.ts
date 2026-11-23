@@ -5,13 +5,14 @@ import {
 } from '../../../shared/types';
 import { createDeck, shuffleDeck, dealCards, sortCards, isJoker, effectiveRank } from '../engine/card';
 import { identifyPattern, isValidPlay, declarePatterns } from '../engine/patterns';
-import { canBeat, canFreePlay, isBombPattern } from '../engine/compare';
+import { canBeat, canFreePlay } from '../engine/compare';
 import { getTeam, getLevelDelta, canResistTribute, selectTributeCard, selectReturnTributeCard, isValidReturnTributeCard } from '../engine/rules';
-import { findBestPlay, findSmartPlay, generateLegalPlays } from '../engine/ai';
-import type { AiDecisionContext, AiRecentAction } from '../engine/llmAi';
+import type { AiDecisionTrace } from '../engine/ai';
+import { findSmartPlay, generateLegalPlays, orderHintPlays } from '../engine/ai';
+import type { AiDecisionContext, AiRecentAction, AiStrategyPlan, AiStrategyMemory } from '../engine/llmAi';
 import { DEFAULT_AI_SELECTION } from '../engine/llmAi';
 import { recordAiDecision } from '../engine/aiTelemetry';
-import { arrangeHand } from '../engine/arrangeHand';
+import { saveRoundReplay } from '../db/replays';
 
 const MAX_PLAYERS = 4;
 const PLAYER_ACTION_TIMEOUT = 90000;
@@ -31,7 +32,10 @@ export class GameRoom {
   rankings: { playerId: string; rank: number }[] = [];
   currentLevel: number = Rank.Two;
   turnTimer: ReturnType<typeof setTimeout> | null = null;
+  private turnGeneration = 0;
+  private preparedPlay: CardPattern | null | undefined;
   recentActions: AiRecentAction[] = [];
+  private aiStrategyMemory = new Map<string, AiStrategyMemory>();
   private publicActionHistory: AiRecentAction[] = [];
   private roundReplay: string[] = [];
   roundNumber: number = 0;
@@ -60,7 +64,10 @@ export class GameRoom {
     this.ownerId = ownerId;
   }
 
-  addPlayer(id: string, name: string, level: number, socket: any, isAI: boolean = false): number {
+  addPlayer(
+    id: string, name: string, level: number, socket: any, isAI: boolean = false,
+    preferredSeatIndex?: number,
+  ): number {
     const existingIdx = this.players.findIndex(p => p.id === id);
     if (existingIdx >= 0) {
       const existing = this.players[existingIdx];
@@ -75,9 +82,14 @@ export class GameRoom {
     }
 
     if (this.players.length >= MAX_PLAYERS) return -1;
+    const seatIndex = preferredSeatIndex === undefined
+      ? this.seatAssignments.findIndex(seat => seat === null)
+      : Number.isInteger(preferredSeatIndex) && preferredSeatIndex >= 0
+        && preferredSeatIndex < MAX_PLAYERS && this.seatAssignments[preferredSeatIndex] === null
+        ? preferredSeatIndex : -1;
+    if (seatIndex < 0) return -1;
     this.players.push({ id, name, level, socket, isAI });
-    const seatIndex = this.seatAssignments.findIndex(seat => seat === null);
-    if (seatIndex >= 0) this.seatAssignments[seatIndex] = id;
+    this.seatAssignments[seatIndex] = id;
     if (!this.state || this.state.phase === GamePhase.Waiting) {
       this.syncWaitingState();
     }
@@ -124,6 +136,26 @@ export class GameRoom {
 
   hasSpectator(id: string): boolean {
     return this.spectators.has(id);
+  }
+
+  resolveInviteSeat(
+    inviterId: string, relation: 'partner' | 'opponent',
+  ): { success: boolean; seatIndex?: number; error?: string } {
+    if (this.state && this.state.phase !== GamePhase.Waiting) {
+      return { success: false, error: '牌局已经开始，不能选择阵营' };
+    }
+    const inviterSeat = this.seatAssignments.indexOf(inviterId);
+    if (inviterSeat < 0) return { success: false, error: '邀请人已不在房间中' };
+    const targets = relation === 'partner'
+      ? [(inviterSeat + 2) % MAX_PLAYERS]
+      : [(inviterSeat + 1) % MAX_PLAYERS, (inviterSeat + 3) % MAX_PLAYERS];
+    const seatIndex = targets.find(index => this.seatAssignments[index] === null);
+    if (seatIndex === undefined) {
+      return { success: false, error: relation === 'partner'
+        ? '邀请人的同队座位已被占用，请选择作为对手'
+        : '邀请人的两个对手座位都已被占用，请选择同队' };
+    }
+    return { success: true, seatIndex };
   }
 
   addSpectator(id: string, name: string, socket: any): { success: boolean; error?: string } {
@@ -242,7 +274,8 @@ export class GameRoom {
     if (playerIdx !== this.state.currentPlayerIndex) return [];
     const hand = this.hands.get(playerId) || [];
     const isFreePlay = canFreePlay(this.state.lastPlay, this.state.passCount);
-    let legalPlays = generateLegalPlays(hand, this.state.currentLevel);
+    const allPlays = generateLegalPlays(hand, this.state.currentLevel);
+    let legalPlays = allPlays;
     if (!isFreePlay && this.state.lastPlay) {
       legalPlays = legalPlays.filter(pattern =>
         canBeat(pattern, this.state!.lastPlay!, this.state!.currentLevel)
@@ -259,16 +292,9 @@ export class GameRoom {
     });
     if (legalPlays.length === 0) return [];
 
-    // Keep the cycle predictable: ordinary combinations first, bombs last;
-    // within the same type show the weaker/smaller play before stronger ones.
-    legalPlays.sort((a, b) => {
-      const bombDelta = Number(isBombPattern(a)) - Number(isBombPattern(b));
-      if (bombDelta !== 0) return bombDelta;
-      if (a.cards.length !== b.cards.length) return b.cards.length - a.cards.length;
-      if (a.type !== b.type) return a.type.localeCompare(b.type);
-      return effectiveRank(a.rank, this.state!.currentLevel)
-        - effectiveRank(b.rank, this.state!.currentLevel);
-    });
+    // Order the cycle by the rule-based AI's preference: the first hint is the
+    // heuristic's own play, later presses walk progressively weaker options.
+    legalPlays = orderHintPlays(legalPlays, hand, this.state.currentLevel, isFreePlay, allPlays);
 
     const selectionKey = [...currentCardIds].sort((a, b) => a - b).join(',');
     const currentIndex = legalPlays.findIndex(pattern =>
@@ -282,6 +308,7 @@ export class GameRoom {
     this.lockSeatsForGame();
     const previousRankings = this.roundNumber > 0 ? [...this.rankings] : [];
     this.roundNumber++;
+    this.aiStrategyMemory.clear();
     if (!this.matchStartedAt) this.matchStartedAt = Date.now();
     this.reportedCounts.clear();
     const deck = shuffleDeck(createDeck());
@@ -587,6 +614,8 @@ export class GameRoom {
 
   private startTurn() {
     if (!this.state) return;
+    const generation = ++this.turnGeneration;
+    this.preparedPlay = undefined;
     if (this.turnTimer) clearTimeout(this.turnTimer);
 
     const currentPlayer = this.players[this.state.currentPlayerIndex];
@@ -596,7 +625,7 @@ export class GameRoom {
       // Keep the same watchdog for every player. aiPlay snapshots the state,
       // so a delayed model response is ignored after this timeout advances it.
       this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
-      setTimeout(() => this.aiPlay(), 500);
+      setTimeout(() => { if (this.turnGeneration === generation) void this.aiPlay(); }, 500);
     } else {
       this.turnTimer = setTimeout(() => this.handleTimeout(), TURN_TIMEOUT);
     }
@@ -622,9 +651,7 @@ export class GameRoom {
     }
 
     const hand = this.hands.get(playerId) || [];
-    if (cards.length === 0) {
-      return this.handlePass(playerId);
-    }
+    if (!Array.isArray(cards) || cards.length === 0) return { success: false, error: '请先选牌' };
 
     if (new Set(cards.map(card => card.id)).size !== cards.length) return { success: false, error: '不能重复选择同一张牌' };
     const handCardIds = new Set(hand.map(c => c.id));
@@ -707,8 +734,9 @@ export class GameRoom {
     return { success: true };
   }
 
-  private handlePass(playerId: string): { success: boolean; error?: string } {
-    if (!this.state) return { success: false, error: '游戏未在进行中' };
+  handlePass(playerId: string): { success: boolean; error?: string } {
+    if (!this.state || this.state.phase !== GamePhase.Playing) return { success: false, error: '游戏未在进行中' };
+    if (this.players[this.state.currentPlayerIndex]?.id !== playerId) return { success: false, error: '不是你的回合' };
 
     if (!this.state.lastPlay) {
       return { success: false, error: '首轮必须出牌' };
@@ -809,6 +837,9 @@ export class GameRoom {
   private recordAiAction(action: AiRecentAction) {
     this.recentActions = [...this.recentActions.slice(-11), action];
     this.publicActionHistory.push(action);
+    // Any actual action invalidates the previous plan; aiPlay installs a new
+    // one only after a successful, unchanged model decision.
+    this.aiStrategyMemory.delete(this.players[action.seatIndex]?.id);
     const playerName = this.players[action.seatIndex]?.name || '未知玩家';
     if (action.action === 'pass') {
       this.roundReplay.push(`${playerName}：不出`);
@@ -834,6 +865,7 @@ export class GameRoom {
   private getAiDecisionContext(playerIdx: number): AiDecisionContext {
     const partnerSeatIndex = (playerIdx + 2) % MAX_PLAYERS;
     return {
+      strategyMemory: this.aiStrategyMemory.get(this.players[playerIdx]?.id),
       selfSeatIndex: playerIdx,
       partnerSeatIndex,
       lastPlayPlayerIndex: this.state?.lastPlayPlayerIndex ?? -1,
@@ -874,6 +906,8 @@ export class GameRoom {
 
   private endRound() {
     if (!this.state) return;
+    this.aiStrategyMemory.clear();
+    const playedLevel = this.currentLevel;
 
     if (this.turnTimer) clearTimeout(this.turnTimer);
     this.turnTimer = null;
@@ -927,6 +961,15 @@ export class GameRoom {
     } else if (limitReached) {
       result.endReason = '达到比赛限制，级数相同，下一副加赛';
     }
+    try {
+      saveRoundReplay({
+        roomId: this.id, roundNumber: this.roundNumber, level: playedLevel,
+        players: this.players.map((player, seatIndex) => ({ id: player.id, name: player.name, seatIndex })),
+        actions: this.publicActionHistory, result,
+      });
+    } catch (error) {
+      console.error('Failed to save round replay:', error);
+    }
     this.broadcastEvent('round_end', result);
     this.state.roundResult = result;
     this.broadcastState();
@@ -943,12 +986,18 @@ export class GameRoom {
     return { success: true };
   }
 
-  private async aiPlay() {
+  private async aiPlay(useModel = this.aiUseLLM) {
     if (!this.state) return;
+    const generation = this.turnGeneration;
     const decisionStarted = performance.now();
     let decisionFailed = false;
     try {
       const expectedState = this.state;
+      const expectedRound = this.roundNumber;
+      let plan: AiStrategyPlan | undefined;
+      let executed = false;
+      let trace: AiDecisionTrace | undefined;
+      const actionIndex = this.publicActionHistory.length;
       const playerIdx = this.state.currentPlayerIndex;
       const player = this.players[playerIdx];
       const hand = this.hands.get(player.id) || [];
@@ -957,26 +1006,24 @@ export class GameRoom {
       const context = this.getAiDecisionContext(playerIdx);
       // Smart rooms analyze every non-forced decision, including follow vs PASS.
       // Rooms may explicitly opt out for deterministic rule-based play.
-      const pattern = this.aiUseLLM
-        ? await findSmartPlay(
+      const pattern = await findSmartPlay(
             hand,
             this.state.lastPlay,
             isFreePlay,
             this.state.currentLevel,
             context,
             this.aiModelSelection,
-          )
-        : findBestPlay(
-            hand,
-            this.state.lastPlay,
-            isFreePlay,
-            this.state.currentLevel,
-            context,
+            value => { plan = value; },
+            value => { trace = value; },
+            { useModel, onLocalReady: action => {
+              if (this.turnGeneration === generation) this.preparedPlay = action;
+            } },
           );
       // Ignore a delayed model response if the round or active player changed.
       if (
         !this.state ||
         this.state !== expectedState ||
+        this.turnGeneration !== generation ||
         this.state.phase !== GamePhase.Playing ||
         this.state.currentPlayerIndex !== playerIdx ||
         this.players[playerIdx]?.id !== player.id
@@ -984,41 +1031,31 @@ export class GameRoom {
         return;
       }
 
-      if (pattern) {
-        this.playCards(player.id, pattern.cards, { type: pattern.type, rank: pattern.rank });
-      } else {
-        if (this.state.lastPlay) {
-          this.handlePass(player.id);
-        } else {
-          const fallback = findBestPlay(
-            hand, null, true, this.state.currentLevel, this.getAiDecisionContext(playerIdx),
-          );
-          if (fallback) {
-            this.playCards(player.id, fallback.cards, { type: fallback.type, rank: fallback.rank });
-          }
-        }
+      executed = pattern
+        ? this.playCards(player.id, pattern.cards, { type: pattern.type, rank: pattern.rank }).success
+        : this.handlePass(player.id).success;
+      if (!executed) throw new Error('Decision could not be applied to the current trick');
+      if (executed && trace) console.info('[AI decision]', JSON.stringify({
+        room: this.id, round: expectedRound, seat: playerIdx, action: actionIndex + 1,
+        ...trace, played: pattern ? `${pattern.type}:${pattern.rank}` : 'PASS',
+      }));
+      if (executed && plan && this.roundNumber === expectedRound && this.state?.phase === GamePhase.Playing) {
+        this.aiStrategyMemory.set(player.id, {
+          ...plan, afterAction: this.publicActionHistory.length,
+          executed: pattern ? `${pattern.type}:${pattern.rank}:${pattern.cards.length}` : 'PASS',
+        });
       }
     } catch (e) {
       decisionFailed = true;
       console.error('aiPlay error:', e);
-      // Fallback: just pass or force play smallest single
-      if (this.state && this.state.lastPlay) {
-        try { this.handlePass(this.players[this.state.currentPlayerIndex]?.id); } catch {}
-      } else if (this.state) {
-        const player = this.players[this.state.currentPlayerIndex];
-        const hand = this.hands.get(player?.id) || [];
-        if (hand.length > 0) {
-          const fallback = findBestPlay(
-            hand, null, true, this.state.currentLevel,
-            this.getAiDecisionContext(this.state.currentPlayerIndex),
-          );
-          if (fallback) {
-            try {
-              this.playCards(player.id, fallback.cards, { type: fallback.type, rank: fallback.rank });
-            } catch {}
-          }
-        }
-      }
+      if (generation !== this.turnGeneration || this.state?.phase !== GamePhase.Playing) return;
+      if (this.executePreparedPlay()) return;
+      // Only reached if the shared evaluator itself failed before providing
+      // a usable move. Preserve turn liveness with a legal emergency action.
+      const player = this.players[this.state.currentPlayerIndex];
+      const hand = this.hands.get(player.id);
+      if (this.state.lastPlay) this.handlePass(player.id);
+      else if (hand?.length) this.playCards(player.id, [hand[0]]);
     } finally {
       recordAiDecision(this.aiUseLLM, performance.now() - decisionStarted, decisionFailed);
     }
@@ -1027,31 +1064,20 @@ export class GameRoom {
   private handleTimeout() {
     if (!this.state || this.state.phase !== GamePhase.Playing) return;
     const player = this.players[this.state.currentPlayerIndex];
-    if (!player) return;
-    const expiredDeadline = this.state.actionDeadline;
-    let result: { success: boolean; error?: string };
-    if (!this.state.lastPlay) {
-      const hand = this.hands.get(player.id) || [];
-      // The watchdog must finish immediately and must not depend on strategy
-      // enumeration or a generated declaration being accepted. Any single is
-      // legal when leading, including the level's heart wildcard.
-      const card = [...hand].sort((a, b) =>
-        effectiveRank(a.rank, this.state!.currentLevel) - effectiveRank(b.rank, this.state!.currentLevel)
-        || a.id - b.id
-      )[0];
-      if (!card) {
-        console.error('[turn timeout] active player has no cards', { roomId: this.id, playerId: player.id });
-        return;
-      }
-      result = this.playCards(player.id, [card]);
-    } else {
-      result = this.handlePass(player.id);
+    if (player.isAI || !this.state.lastPlay) {
+      ++this.turnGeneration;
+      if (!this.executePreparedPlay()) void this.aiPlay(false);
+      return;
     }
-    console[result.success ? 'info' : 'error']('[turn timeout]', {
-      roomId: this.id, playerId: player.id, expiredDeadline,
-      success: result.success, error: result.error,
-      nextPlayerIndex: this.state.currentPlayerIndex,
-    });
+    this.handlePass(player.id);
+  }
+
+  private executePreparedPlay(): boolean {
+    if (!this.state || this.preparedPlay === undefined) return false;
+    const player = this.players[this.state.currentPlayerIndex];
+    const play = this.preparedPlay;
+    return play ? this.playCards(player.id, play.cards, { type: play.type, rank: play.rank }).success
+      : this.handlePass(player.id).success;
   }
 
   private updatePlayerCardCount() {

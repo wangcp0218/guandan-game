@@ -94,7 +94,7 @@ export interface TributeExchange {
   returnCard: Card | null;
 }
 
-export type AiProvider = 'hwcloud' | 'local';
+export type AiProvider = 'deepseek' | 'local' | 'fueternal';
 
 export interface AiModelSelection {
   provider: AiProvider;

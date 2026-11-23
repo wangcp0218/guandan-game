@@ -226,6 +226,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   box-shadow: 0 2px 5px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.85);
   overflow: hidden;
   user-select: none;
+  -webkit-touch-callout: none;
   transform: translateY(0);
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
 }
@@ -288,14 +289,22 @@ input::placeholder { color: rgba(255,255,255,0.5); }
 }
 
 .card-corner--hand {
-  top: clamp(3px, .25vw, 6px);
+  top: 1px;
   left: clamp(4px, .42vw, 9px);
   flex-direction: row;
   align-items: baseline;
   gap: clamp(1px, .15vw, 3px);
   line-height: 1;
   letter-spacing: -0.04em;
+  /* Stacked hand cards reveal only a --hand-stack-rise tall strip of each
+     card, so the corner index must fit inside the rise or the suit is clipped
+     behind the next card (hearts and diamonds look alike when cut in half). */
+  --corner-rank: max(9px, min(var(--hand-card-rank-size), calc(var(--hand-stack-rise, 64px) - 2px)));
+  --corner-suit: max(7px, min(var(--hand-card-suit-size), calc(var(--corner-rank) * 0.75)));
 }
+
+.card-corner--hand .card-rank { font-size: var(--corner-rank); }
+.card-corner--hand .card-corner-suit { font-size: var(--corner-suit); }
 
 .card-rank,
 .card-corner-suit {
@@ -706,30 +715,8 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   gap: 8px;
 }
 
-.action-countdown {
-  display: grid;
-  place-items: center;
-  flex: 0 0 38px;
-  height: 38px;
-  box-sizing: border-box;
-  border: 2px solid #ffd878;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #805e2b, #4c381e);
-  color: #fff3bf;
-  font-size: 20px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  box-shadow: 0 2px 8px #002f2b66;
-}
-
-.action-countdown.is-urgent {
-  border-color: #ff9a86;
-  background: #a43628;
-  color: #fff;
-}
-
-@media (max-width: 900px), (max-height: 650px) {
-  :root {
+@container table-viewport (max-width: 900px) or (max-height: 650px) {
+  .game-room {
     --game-card-width: clamp(64px, 8vw, 78px);
     --game-card-height: clamp(92px, 11.5vw, 112px);
     --game-card-rank-size: clamp(25px, 3.2vw, 31px);
@@ -784,7 +771,7 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   .spectator-hand--right { right: 12%; }
 }
 
-@media (max-height: 720px) {
+@container table-viewport (max-height: 720px) {
   .hand-cards {
     --hand-stack-rise: clamp(24px, 2.45vw, 38px);
     --hand-column-step: clamp(48px, 5vw, 76px);
@@ -795,8 +782,8 @@ input::placeholder { color: rgba(255,255,255,0.5); }
   }
 }
 
-@media (max-width: 760px) {
-  :root {
+@container table-viewport (max-width: 760px) {
+  .game-room {
     --game-card-width: 64px;
     --game-card-height: 94px;
     --game-card-rank-size: 25px;
@@ -863,7 +850,7 @@ button:disabled { cursor: default; }
 .game-room.is-waiting .game-bottom-area { display: none; }
 .game-room [style*="position: fixed"] > div { max-width: calc(100vw - 24px); max-height: 90dvh; overflow: auto; }
 
-@media (max-width: 900px) {
+@container table-viewport (max-width: 900px) {
   input, select { font-size: 16px !important; }
   .duel-scoreboard { top: 6px; left: 6px; min-width: 132px; padding: 4px; }
   .duel-score-team strong { font-size: 20px; }
@@ -885,8 +872,8 @@ button:disabled { cursor: default; }
   .is-waiting .player-seat, .is-waiting .self-player-seat { display: none; }
 }
 
-@media (max-width: 600px) and (orientation: portrait) {
-  :root { --game-card-width: 23px; --game-card-height: 33px; --game-card-rank-size: 12px; --game-card-suit-size: 8px; --game-card-center-size: 15px; }
+@container table-viewport (max-width: 600px) and (orientation: portrait) {
+  .game-room { --game-card-width: 23px; --game-card-height: 33px; --game-card-rank-size: 12px; --game-card-suit-size: 8px; --game-card-center-size: 15px; }
   .duel-scoreboard {
     box-sizing: border-box;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -996,7 +983,7 @@ button:disabled { cursor: default; }
 
 /* The desktop table has a dedicated row for each seat already, so player names
    are redundant there. Keep the local play lower and clear of the partner row. */
-@media (min-width: 601px) {
+@container table-viewport (min-width: 601px) {
   .seat-action-player {
     display: none !important;
   }
@@ -1038,7 +1025,7 @@ button:disabled { cursor: default; }
 
 /* Portrait command deck: keep the header clear, move secondary actions to the
    lower-right corner, and use the whole player card as the turn indicator. */
-@media (max-width: 600px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (orientation: portrait) {
   .game-room:not(.is-waiting) .duel-scoreboard {
     top: 50%;
     left: 50%;
@@ -1089,8 +1076,8 @@ button:disabled { cursor: default; }
   .player-info.is-current > span:last-child { color: rgba(43, 33, 5, .68) !important; }
 }
 
-@media (max-height: 500px) and (orientation: landscape) {
-  :root { --game-card-width: 34px; --game-card-height: 50px; --game-card-rank-size: 19px; --game-card-suit-size: 14px; --game-card-center-size: 24px; }
+@container table-viewport (max-height: 500px) and (orientation: landscape) {
+  .game-room { --game-card-width: 34px; --game-card-height: 50px; --game-card-rank-size: 19px; --game-card-suit-size: 14px; --game-card-center-size: 24px; }
   .player-seat--top { top: 6px; }
   .player-seat--left, .player-seat--right { top: 100px; }
   .player-info { padding: 3px 6px !important; min-width: 0 !important; }
@@ -1105,7 +1092,7 @@ button:disabled { cursor: default; }
   .self-player-seat .player-info { max-width: 92px; }
   .game-bottom-area { left: 0; right: 0; padding: 0 4px 3px; }
   .game-room.is-waiting .game-center-play-area { top: 52%; }
-  .waiting-seat-setup { max-height: 75dvh; padding: 10px; }
+  .waiting-seat-setup { max-height: 75cqh; padding: 10px; }
 }
 
 @media (hover: none) {
@@ -1124,7 +1111,7 @@ button:disabled { cursor: default; }
   .lobby-page > div { padding: 12px !important; flex-wrap: wrap; }
   .lobby-page button { min-height: 44px; }
 }
-@media (max-width: 600px) and (max-height: 650px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (max-height: 650px) and (orientation: portrait) {
   .self-player-seat { top: 55%; bottom: auto; }
   .self-player-seat .player-info > div, .self-player-seat .player-info > span:last-child { display: none; }
   .game-center-play-area { top: 55%; max-width: 55%; }
@@ -1135,7 +1122,8 @@ button:disabled { cursor: default; }
 /* Safari can expose a landscape phone as a wide CSS viewport, so screen width
    alone is not a reliable mobile detector. Coarse-pointer devices use this
    layout too, even when their reported width exceeds 1000px. */
-@media (max-width: 0px) {
+@container table-viewport (max-width: 0px) {
+  .game-room { padding: 4px; }
   .game-table {
     display: grid !important;
     grid-template-columns: minmax(92px, 18vw) minmax(0, 1fr) minmax(112px, 19vw);
@@ -1273,7 +1261,7 @@ button:disabled { cursor: default; }
 
 /* Portrait phones keep rank ordering and expose overflow as a touch-friendly
    horizontal strip. The hand and controls occupy separate rows. */
-@media (max-width: 600px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (orientation: portrait) {
   .game-bottom-area {
     height: 40dvh;
     display: grid;
@@ -1366,8 +1354,8 @@ button:disabled { cursor: default; }
 
 /* Full-height portrait phones can afford larger cards while preserving four
    independent play rows and a dedicated hand/control area. */
-@media (max-width: 600px) and (min-height: 700px) and (orientation: portrait) {
-  :root {
+@container table-viewport (max-width: 600px) and (min-height: 700px) and (orientation: portrait) {
+  .game-room {
     --game-card-width: 46px;
     --game-card-height: 66px;
     --game-card-rank-size: 24px;
@@ -1397,7 +1385,7 @@ button:disabled { cursor: default; }
 
 /* Reassert the compact portrait row positions after the legacy short-screen
    rules, which otherwise move the self row back to the desktop midpoint. */
-@media (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
   .played-zone--top { top: clamp(175px, 23%, 195px); }
   .played-zone--left { top: calc(clamp(175px, 23%, 195px) + 38px); }
   .played-zone--right { top: calc(clamp(175px, 23%, 195px) + 76px); }
@@ -1406,7 +1394,7 @@ button:disabled { cursor: default; }
 
 /* Keep the interactive hand above the four table-action rows.  A short hand
    stays centred, while a long hand remains reachable through horizontal scroll. */
-@media (max-width: 600px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (orientation: portrait) {
   .player-seat,
   .self-player-seat {
     top: 10px;
@@ -1473,14 +1461,14 @@ button:disabled { cursor: default; }
 }
 
 /* Keep all four portrait play rows above the hand. */
-@media (max-width: 600px) and (min-height: 700px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (min-height: 700px) and (orientation: portrait) {
   .played-zone--left { top: clamp(108px, 14%, 126px); }
   .played-zone--top { top: calc(clamp(108px, 14%, 126px) + 72px); }
   .played-zone--right { top: calc(clamp(108px, 14%, 126px) + 144px); }
   .game-center-play-area { top: calc(clamp(108px, 14%, 126px) + 216px); }
 }
 
-@media (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (max-height: 699px) and (orientation: portrait) {
   .played-zone--left { top: 88px; }
   .played-zone--top { top: 126px; }
   .played-zone--right { top: 164px; }
@@ -1489,7 +1477,7 @@ button:disabled { cursor: default; }
 
 /* The waiting-seat panel is a dialog-like surface, not a play row. Keep it
    centred even though the active-game portrait layout removes translation. */
-@media (max-width: 600px) and (orientation: portrait) {
+@container table-viewport (max-width: 600px) and (orientation: portrait) {
   .game-room.is-waiting .game-center-play-area {
     top: 50%;
     left: 50%;
@@ -1504,9 +1492,105 @@ button:disabled { cursor: default; }
   }
 }
 
-/* Pointer gestures own the hand surface; browser panning and text selection
-   would otherwise cancel a touch swipe midway through a stack. */
-.hand-cards { touch-action: pan-x; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.hand-cards.is-dragging .playing-card { transition: none; }
+.card-report-notice {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  max-width: 90vw;
+  padding: 12px 20px;
+  border: 2px solid #ffd66b;
+  border-radius: 12px;
+  background: #493618;
+  color: #fff1b8;
+  font-weight: 800;
+  box-shadow: 0 4px 24px #0006;
+  pointer-events: none;
+}
+.player-info.has-card-report { box-shadow: 0 0 0 2px #ffd66b88; }
+.card-report-badge {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #ffd66b;
+  color: #362300;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.card-report-badge.is-urgent { background: #ff786c; color: #250500; }
 
-@media (orientation: landscape) { .hand-cards { touch-action: none; } }
+
+/* Container queries follow the table's dimensions, even when the phone's
+   orientation is locked. Transforming the whole viewport also rotates dialogs. */
+.game-viewport {
+  position: fixed;
+  inset: 0;
+  width: 100dvw;
+  height: 100dvh;
+  container: table-viewport / size;
+  overflow: hidden;
+}
+.game-viewport .game-room { width: 100%; height: 100% !important; }
+@media (orientation: portrait) {
+  .game-viewport.prefer-landscape {
+    width: 100dvh;
+    height: 100dvw;
+    right: auto;
+    bottom: auto;
+    transform-origin: top left;
+    transform: translateX(100dvw) rotate(90deg);
+  }
+}
+@container table-viewport (orientation: landscape) and (max-height: 600px) {
+  .game-room { padding: 4px; }
+  .game-table { border-width: 4px !important; border-radius: 12px !important; }
+  .duel-scoreboard { top: 5px; left: 6px; padding: 4px 8px; }
+  .duel-score-team { font-size: 10px; }
+  .duel-score-team strong { font-size: 20px; }
+  .duel-score-meta, .duel-turn-countdown { font-size: 10px; }
+  .room-exit-actions { top: 5px; right: 6px; gap: 4px; }
+  .room-exit-actions button { min-height: 34px; padding: 5px 8px; font-size: 11px; }
+  .spectator-menu { top: 45px; right: 6px; padding: 5px 8px; font-size: 11px; }
+  .player-seat--top { top: 4px; }
+  .player-seat--left, .player-seat--right { top: 30%; }
+  .player-info { padding: 3px 6px !important; min-width: 0 !important; gap: 1px !important; }
+  .player-info > div > div { width: 24px !important; height: 24px !important; }
+  .player-info > span { font-size: 11px !important; }
+  .game-turn-status { top: 80px !important; left: 6px; font-size: 11px; padding: 3px 6px; }
+  .played-zone { padding-top: 4px; max-width: 29%; }
+  .played-zone--top { top: 65px; }
+  .played-zone--left { top: 30%; left: 17%; }
+  .played-zone--right { top: 30%; right: 17%; }
+  .game-room:not(.is-waiting) .game-center-play-area.is-personal-play-area { top: 49% !important; }
+  .game-room { --game-card-width: 34px; --game-card-height: 48px; --game-card-rank-size: 19px; --game-card-suit-size: 14px; --game-card-center-size: 24px; }
+  .self-player-seat { top: 55%; bottom: auto; left: 6px; }
+  .self-player-seat .player-info > div, .self-player-seat .player-info > span:last-child { display: none; }
+  .game-bottom-area { height: 42cqh; padding: 0 5px 3px; display: flex; flex-direction: column; }
+  .hand-scroll { order: 1; flex: 1; min-height: 0; max-height: none; padding: 8px 0 0; overflow: auto; }
+  .hand-cards {
+    --hand-card-width: 40px; --hand-card-height: 57px;
+    --hand-card-rank-size: 22px; --hand-card-suit-size: 16px; --hand-card-center-size: 28px;
+    --hand-stack-rise: clamp(13px, 4cqh, 18px); --hand-column-step: 43px; --hand-column-min: 38px;
+    width: max-content; min-width: 100%; padding: 0 3px;
+    justify-content: flex-start; justify-content: safe center;
+  }
+  .hand-card-group { flex-shrink: 0; }
+  .game-action-bar { order: 2; flex: 0 0 36px; margin: 2px 0 0; }
+  .game-play-actions { gap: 6px; }
+  .game-play-actions button { min-height: 34px; min-width: 65px; padding: 5px 12px !important; font-size: 12px !important; }
+  .game-room.is-waiting .game-center-play-area { top: 53%; }
+  /* The rotated page is much wider than the physical portrait viewport, so
+     size the panel with container units (cqw) instead of vw, and compact the
+     seat cards so the start button stays inside the short page. */
+  .waiting-seat-setup { width: min(560px, 92cqw); max-height: 75cqh; overflow: auto; padding: 10px; }
+  .waiting-seat-title { font-size: 15px; }
+  .waiting-seat-help { margin: 4px 0 10px; font-size: 11px; }
+  .waiting-seat-grid { gap: 8px; }
+  .waiting-seat { min-height: 0; padding: 6px 8px; }
+  .waiting-seat strong { margin: 2px 0; font-size: 13px; }
+  .waiting-seat span, .waiting-seat small { font-size: 10px; }
+  .waiting-start-button { margin-top: 10px; padding: 8px 20px; }
+  .game-room [style*="position: fixed"] > div { max-width: 90cqw; max-height: 90cqh; padding: 16px; }
+  .spectator-dialog-list { max-height: 45cqh; }
+  .card-report-notice { top: 8px; padding: 6px 14px; max-width: 85cqw; }
+}

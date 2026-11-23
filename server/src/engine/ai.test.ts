@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Card, CardPattern, PatternType, Rank, Suit } from '../../../shared/types';
 import {
-  compressCandidatesForModel, enforceTeamStrategy, findBestPlay, generateLegalPlays, limitModelCandidates,
+  compressCandidatesForModel, enforceTeamStrategy, findBestPlay, generateLegalPlays, limitModelCandidates, passPosition,
   isForcedAiDecision, opponentControlStreak, reliablyBetterSimulation, roundStake, scorePass, scorePlay,
   shouldUseLlmForDecision, remainingStructureScores,
 } from './ai';
 import { declarePatterns, identifyPattern, validWildSubstitutions } from './patterns';
 import { canBeat } from './compare';
 import type { AiDecisionContext } from './llmAi';
+import { buildTeamPlan } from './aiAnalysis';
 
 function cards(specs: Array<[Suit, Rank]>): Card[] {
   return specs.map(([suit, rank], index) => ({ id: index + 1, suit, rank }));
@@ -266,6 +267,47 @@ function fourPlayerContext(overrides: Partial<AiDecisionContext>): AiDecisionCon
   };
 }
 
+test('team plan changes from organizing to feeding, blocking and finishing', () => {
+  const hand = cards([[Suit.Spade, Rank.Three], [Suit.Club, Rank.Four],
+    [Suit.Diamond, Rank.Eight], [Suit.Heart, Rank.Nine], [Suit.Spade, Rank.SmallJoker]]);
+  const plays = generateLegalPlays(hand, Rank.Two);
+  const calm = fourPlayerContext({});
+  assert.equal(buildTeamPlan(hand, plays, calm).goal, 'organize');
+  const partnerShort = { ...calm, players: calm.players.map(p =>
+    p.relation === 'partner' ? { ...p, cardCount: 2 } : p) };
+  const feed = buildTeamPlan(hand, plays, partnerShort);
+  assert.equal(feed.goal, 'feed_partner');
+  assert.equal(feed.feedType, PatternType.Pair);
+  assert.match(feed.reason, /不保证/);
+  const danger = { ...partnerShort, players: partnerShort.players.map(p =>
+    p.seatIndex === 1 ? { ...p, cardCount: 1 } : p) };
+  assert.equal(buildTeamPlan(hand, plays, danger).goal, 'block_opponent');
+  assert.equal(buildTeamPlan(hand, plays, calm).goal, 'organize', 'plans do not persist after the threat changes');
+  const lastCard = hand.slice(0, 1);
+  assert.equal(buildTeamPlan(lastCard, generateLegalPlays(lastCard, Rank.Two), danger).goal, 'finish_self');
+});
+
+test('partner reported pair encourages control followed by a retained low pair', () => {
+  const hand = cards([[Suit.Spade, Rank.Three], [Suit.Club, Rank.Three],
+    [Suit.Spade, Rank.Ace], [Suit.Spade, Rank.SmallJoker], [Suit.Heart, Rank.BigJoker]]);
+  const last: CardPattern = { type: PatternType.Single, rank: Rank.King, length: 1,
+    cards: [{ id: 99, suit: Suit.Diamond, rank: Rank.King }] };
+  const base = fourPlayerContext({ lastPlayPlayerIndex: 3 });
+  const context = { ...base, players: base.players.map(p => ({ ...p,
+    cardCount: p.relation === 'partner' ? 2 : p.relation === 'self' ? hand.length : 18 })) };
+  const response = findBestPlay(hand, last, false, Rank.Two, context);
+  assert.equal(response?.type, PatternType.Single);
+  assert.equal(response?.rank, Rank.Ace);
+  const used = new Set(response!.cards.map(card => card.id));
+  const remaining = hand.filter(card => !used.has(card.id));
+  const lead = findBestPlay(remaining, null, true, Rank.Two,
+    { ...context, lastPlayPlayerIndex: -1 });
+  assert.equal(lead?.type, PatternType.Pair);
+  assert.equal(lead?.rank, Rank.Three);
+  assert.equal(findBestPlay(hand, last, false, Rank.Two,
+    { ...context, lastPlayPlayerIndex: 2 }), null, 'do not take control from partner');
+});
+
 test('roundStake follows the match score: trailing fights harder, a big lead conserves', () => {
   assert.equal(roundStake(undefined), 1);
   const neutral = roundStake(fourPlayerContext({}));
@@ -367,7 +409,7 @@ test('opening single play contests an opponent with the weakest loose natural si
   const guarded = enforceTeamStrategy(
     null, legal, hand, last, false, Rank.Three, context,
   );
-  assert.equal(guarded?.rank, Rank.King, 'an LLM PASS receives the same loose-single guard');
+  assert.equal(guarded, null, 'a strategic LLM PASS is preserved even with a loose single');
 });
 
 test('single PASS guard still protects a partner lead, pairs, wildcards and jokers', () => {
@@ -421,7 +463,8 @@ test('opponent consecutive control creates pressure to beat a low single', () =>
   });
   assert.equal(opponentControlStreak(controlled), 2);
   assert.ok(scorePass(hand, last, Rank.Two, controlled) < scorePass(hand, last, Rank.Two, base));
-  assert.equal(findBestPlay(hand, last, false, Rank.Two, base), null);
+  const calmPlay = findBestPlay(hand, last, false, Rank.Two, base);
+  assert.ok(calmPlay === null || canBeat(calmPlay, last, Rank.Two));
   assert.ok(findBestPlay(hand, last, false, Rank.Two, controlled));
 });
 
@@ -658,4 +701,138 @@ test('a loose joker takes an opponent level single to release grouped cards', ()
     'one playable response still competes with PASS');
   assert.equal(shouldUseLlmForDecision(hand, [], last, false, Rank.Two, context), false);
   assert.equal(shouldUseLlmForDecision(hand, responses.slice(0, 1), null, true, Rank.Two, context), false);
+});
+
+test('reported next opponent maximum survives following and smart-policy lowering', () => {
+  for (const size of [1, 2]) {
+    const hand = size === 1
+      ? cards([[Suit.Spade, Rank.Eight], [Suit.Spade, Rank.Ace]])
+      : cards([[Suit.Spade, Rank.Eight], [Suit.Club, Rank.Eight],
+        [Suit.Spade, Rank.Ace], [Suit.Club, Rank.Ace]]);
+    const last: CardPattern = { type: size === 1 ? PatternType.Single : PatternType.Pair,
+      rank: Rank.Five, length: size, cards: Array.from({ length: size }, (_, i) =>
+        ({ id: 90 + i, suit: Suit.Diamond, rank: Rank.Five })) };
+    const context = fourPlayerContext({ lastPlayPlayerIndex: 3,
+      players: fourPlayerContext({}).players.map(player => ({ ...player,
+        cardCount: player.seatIndex === 0 ? hand.length : player.seatIndex === 1 ? size : 8 })),
+    });
+    const legal = generateLegalPlays(hand, Rank.Two).filter(play => canBeat(play, last, Rank.Two));
+    const strongest = legal.find(play => play.rank === Rank.Ace)!;
+    const weaker = legal.find(play => play.rank === Rank.Eight)!;
+    assert.equal(findBestPlay(hand, last, false, Rank.Two, context)?.rank, Rank.Ace);
+    for (const proposed of [strongest, weaker]) {
+      assert.equal(enforceTeamStrategy(proposed, legal, hand, last, false, Rank.Two, context)?.rank,
+        Rank.Ace, 'final policy must not lower the required blocking card');
+    }
+    assert.equal(enforceTeamStrategy(null, legal, hand, last, false, Rank.Two, context), null,
+      'report protection does not force a model PASS into a play');
+  }
+});
+
+test('following evaluates sequence damage against PASS even with unique-rank cards', () => {
+  const hand = cards([
+    [Suit.Spade, Rank.Eight], [Suit.Club, Rank.Nine], [Suit.Diamond, Rank.Ten],
+    [Suit.Heart, Rank.Jack], [Suit.Spade, Rank.Queen],
+    [Suit.Club, Rank.Ace], [Suit.Diamond, Rank.Ace],
+  ]);
+  const last: CardPattern = { type: PatternType.Single, rank: Rank.Seven, length: 1,
+    cards: [{ id: 99, suit: Suit.Spade, rank: Rank.Seven }] };
+  const context = fourPlayerContext({ lastPlayPlayerIndex: 3,
+    players: fourPlayerContext({}).players.map(player => ({ ...player,
+      cardCount: player.seatIndex === 0 ? hand.length : 18 })),
+  });
+  const legal = generateLegalPlays(hand, Rank.Two).filter(play => canBeat(play, last, Rank.Two));
+  const eight = legal.find(play => play.rank === Rank.Eight)!;
+  assert.ok(scorePlay(eight, hand, Rank.Two, false, context)
+    > scorePass(hand, last, Rank.Two, context), 'base scoring alone would follow');
+  assert.equal(findBestPlay(hand, last, false, Rank.Two, context), null,
+    'full scoring preserves the straight and pair instead of leaving fragments');
+  assert.equal(enforceTeamStrategy(null, legal, hand, last, false, Rank.Two, context), null);
+});
+
+
+test('passing distinguishes last interception, remaining partner response and catch-wind', () => {
+  const hand = cards([[Suit.Spade, Rank.Five], [Suit.Spade, Rank.Six]]);
+  const last = generateLegalPlays(cards([[Suit.Club, Rank.Four]]), Rank.Two)[0];
+  const base = fourPlayerContext({ lastPlayPlayerIndex: 3, passCount: 0 });
+  const lastChance = { ...base, passCount: 2 };
+  assert.deepEqual(passPosition(base).responders, [1, 2]);
+  const tripletPair = { ...last, type: PatternType.TriplePair, length: 5 };
+  for (const count of [3, 4]) {
+    const shortPartner = { ...base, players: base.players.map(p => p.seatIndex === 2 ? { ...p, cardCount: count } : p) };
+    assert.equal(passPosition(shortPartner, tripletPair).partnerMayRespond, count === 4,
+      'three cards cannot beat a full house, four may be a bomb');
+  }
+  assert.equal(passPosition(lastChance, last).partnerMayRespond, false);
+  assert.equal(passPosition(lastChance).closesTrick, true);
+  assert.ok(scorePass(hand, last, Rank.Two, lastChance) < scorePass(hand, last, Rank.Two, base));
+  const short = { ...base, players: base.players.map(p => p.seatIndex === 3 ? { ...p, cardCount: 3 } : p) };
+  assert.ok(scorePass(hand, last, Rank.Two, short) > -1000, 'reported count is pressure, not forced interception');
+  const wind = { ...base, lastPlayPlayerIndex: 2, passCount: 2,
+    players: base.players.map(p => p.seatIndex === 2 ? { ...p, cardCount: 0, finishRank: 1 } : p) };
+  assert.equal(passPosition(wind).nextLead, 0);
+  assert.equal(passPosition(wind).closesTrick, true);
+  const skipped = { ...base, players: base.players.map(p => p.seatIndex === 1 ? { ...p, cardCount: 0, finishRank: 1 } : p) };
+  assert.deepEqual(passPosition(skipped).responders, [2], 'finished seats must not hide a partner response');
+});
+
+
+test('middle-game takeover may release a whole retained group without stealing a closing partner trick', () => {
+  const hand = cards([[Suit.Spade, Rank.Ace], [Suit.Spade, Rank.Three],
+    [Suit.Club, Rank.Three], [Suit.Diamond, Rank.Three]]);
+  const last = generateLegalPlays(cards([[Suit.Club, Rank.Four]]), Rank.Two)[0];
+  const context = fourPlayerContext({ lastPlayPlayerIndex: 2, passCount: 1,
+    recentActions: [{ seatIndex: 2, action: 'play', pattern: last }, { seatIndex: 3, action: 'pass' }] });
+  const plays = generateLegalPlays(hand, Rank.Two);
+  const ace = plays.find(play => play.type === PatternType.Single && play.rank === Rank.Ace)!;
+  assert.equal(findBestPlay(hand, last, false, Rank.Two, context)?.rank, Rank.Ace,
+    'a loose control releases the retained triple');
+  assert.equal(enforceTeamStrategy(ace, [ace], hand, last, false, Rank.Two, context), ace);
+  assert.equal(enforceTeamStrategy(ace, [ace], hand, last, false, Rank.Two,
+    { ...context, passCount: 2 }), null, 'do not steal a trick opponents have already conceded');
+  assert.equal(enforceTeamStrategy(ace, [ace], hand, last, false, Rank.Two,
+    { ...context, players: context.players.map(p => p.relation === 'partner' ? { ...p, cardCount: 2 } : p) }), null,
+    'protect a partner near finishing');
+  const broken = [...hand, { id: 80, rank: Rank.Seven, suit: Suit.Club }];
+  assert.equal(enforceTeamStrategy(ace, [ace], broken, last, false, Rank.Two, context), null,
+    'a takeover needs a real exit, not merely a high card');
+});
+
+
+test('full-house selection preserves joker attachments at equal trick strength', () => {
+  const hand = cards([[Suit.Spade, Rank.Eight], [Suit.Club, Rank.Eight], [Suit.Diamond, Rank.Eight],
+    [Suit.Spade, Rank.SmallJoker], [Suit.Club, Rank.SmallJoker],
+    [Suit.Spade, Rank.Three], [Suit.Club, Rank.Three], [Suit.Spade, Rank.Nine]]);
+  const plays = generateLegalPlays(hand, Rank.Two);
+  const houses = plays.filter(play => play.type === PatternType.TriplePair && play.rank === Rank.Eight);
+  const expensive = houses.find(play => play.cards.some(card => card.rank === Rank.SmallJoker))!;
+  const cheap = houses.find(play => play.cards.some(card => card.rank === Rank.Three))!;
+  assert.equal(canBeat(expensive, cheap, Rank.Two), false, 'joker attachments do not increase trick strength');
+  assert.ok(scorePlay(cheap, hand, Rank.Two, true) > scorePlay(expensive, hand, Rank.Two, true));
+  const last = { ...cheap, rank: Rank.Seven };
+  for (const free of [true, false]) {
+    const selected = enforceTeamStrategy(expensive, houses, hand, free ? null : last, free, Rank.Two);
+    assert.ok(selected && selected.cards.every(card => card.rank !== Rank.SmallJoker),
+      'both leading and following can replace an equally strong expensive attachment');
+  }
+  assert.equal(enforceTeamStrategy(expensive, [expensive], hand, last, false, Rank.Two), expensive,
+    'do not ban the only available full-house response');
+  assert.equal(enforceTeamStrategy(expensive, [expensive], expensive.cards, null, true, Rank.Two), expensive,
+    'directly finishing with a joker pair remains allowed');
+});
+
+
+test('low consecutive pairs do not get free use of level and ace controls', () => {
+  const hand = cards([[Suit.Spade, Rank.Ace], [Suit.Club, Rank.Ace],
+    [Suit.Spade, Rank.Two], [Suit.Club, Rank.Two], [Suit.Spade, Rank.Three], [Suit.Club, Rank.Three],
+    [Suit.Spade, Rank.Five], [Suit.Club, Rank.Five], [Suit.Diamond, Rank.Five],
+    [Suit.Spade, Rank.Jack], [Suit.Club, Rank.Jack]]);
+  const plays = generateLegalPlays(hand, Rank.Two);
+  const low = plays.find(play => play.type === PatternType.ConsecutivePair && play.rank === Rank.Three)!;
+  const house = plays.find(play => play.type === PatternType.TriplePair && play.rank === Rank.Five
+    && play.cards.filter(c => c.rank === Rank.Jack).length === 2)!;
+  assert.ok(low && house);
+  assert.ok(scorePlay(house, hand, Rank.Two, true) > scorePlay(low, hand, Rank.Two, true));
+  assert.equal(enforceTeamStrategy(low, [low], low.cards, null, true, Rank.Two), low,
+    'finishing takes priority over conserving controls');
 });

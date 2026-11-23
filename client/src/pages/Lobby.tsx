@@ -11,14 +11,15 @@ function defaultRoomName() {
   return `${pad(now.getMonth() + 1)}月${pad(now.getDate())}日 ${pad(now.getHours())}:${pad(now.getMinutes())}牌局`;
 }
 
+const HW_AI_MODEL = 'HW-deepseek-v4.1-flash-1017';
 const LOCAL_AI_MODEL = 'Qwen3.8-27';
 const DEFAULT_HWCLOUD_MODEL = 'HW-deepseek-v4.1-flash-1017';
 const PROVIDER_LABELS: Record<AiProvider, string> = { hwcloud: 'HWCloud', local: 'Local' };
 
 function filterSelectableModels(provider: AiProvider, models: string[]) {
-  return Array.from(new Set(models.filter(model => provider === 'hwcloud'
-    ? model === DEFAULT_HWCLOUD_MODEL
-    : model === LOCAL_AI_MODEL
+  return Array.from(new Set(models.filter(model => provider === 'deepseek'
+    ? !model.toLowerCase().includes('pro')
+    : model === (provider === 'fueternal' ? HW_AI_MODEL : LOCAL_AI_MODEL)
   )));
 }
 
@@ -31,8 +32,8 @@ export default function Lobby() {
   const [roomPass, setRoomPass] = useState('');
   const [joinPass, setJoinPass] = useState('');
   const [info, setInfo] = useState('');
-  const [aiProvider, setAiProvider] = useState<AiProvider>('hwcloud');
-  const [aiModel, setAiModel] = useState(DEFAULT_HWCLOUD_MODEL);
+  const [aiProvider, setAiProvider] = useState<AiProvider>('fueternal');
+  const [aiModel, setAiModel] = useState(HW_AI_MODEL);
   const [aiModels, setAiModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState('');
@@ -92,9 +93,9 @@ export default function Lobby() {
       setModelsError(data.error || '');
       setAiModels(selectableModels);
       if (selectableModels.length > 0) {
-        const preferred = data.provider === 'hwcloud'
-          ? (selectableModels.includes(DEFAULT_HWCLOUD_MODEL) ? DEFAULT_HWCLOUD_MODEL : selectableModels[0])
-          : LOCAL_AI_MODEL;
+        const preferred = data.provider === 'deepseek'
+          ? (selectableModels.includes('deepseek-v4-flash') ? 'deepseek-v4-flash' : selectableModels[0])
+          : data.provider === 'fueternal' ? HW_AI_MODEL : LOCAL_AI_MODEL;
         setAiModel(current => selectableModels.includes(current)
           ? current
           : preferred
@@ -131,8 +132,8 @@ export default function Lobby() {
     loadAiModels(aiProvider);
   };
 
-  const [maxRounds, setMaxRounds] = useState(0);
-  const [maxMinutes, setMaxMinutes] = useState(0);
+  const [maxRounds, setMaxRounds] = useState('0');
+  const [maxMinutes, setMaxMinutes] = useState('0');
   const [tripleDoublePenalty, setTripleDoublePenalty] = useState(false);
   const [aiUseLLM, setAiUseLLM] = useState(true);
 
@@ -151,7 +152,7 @@ export default function Lobby() {
       password: roomPass,
       aiProvider,
       aiModel,
-      maxRounds, maxMinutes, tripleDoublePenalty,
+      maxRounds: Number(maxRounds), maxMinutes: Number(maxMinutes), tripleDoublePenalty,
       aiUseLLM,
     });
   };
@@ -223,8 +224,8 @@ export default function Lobby() {
                   onChange={(e) => setRoomPass(e.target.value)}
                   style={styles.input}
                 />
-                <label style={styles.fieldLabel}>比赛最多副数（0不限）<input type="number" min="0" max="10000" value={maxRounds} onChange={e => setMaxRounds(Number(e.target.value))} /></label>
-                <label style={styles.fieldLabel}>比赛分钟数（0不限，打完当前副结算）<input type="number" min="0" max="10000" value={maxMinutes} onChange={e => setMaxMinutes(Number(e.target.value))} /></label>
+                <label style={styles.fieldLabel}>比赛最多副数（0：不限，打到 A 级通关）<input type="number" min="0" max="10000" value={maxRounds} onChange={e => setMaxRounds(e.target.value)} /></label>
+                <label style={styles.fieldLabel}>比赛分钟数（0不限，打完当前副结算）<input type="number" min="0" max="10000" value={maxMinutes} onChange={e => setMaxMinutes(e.target.value)} /></label>
                 <label style={styles.fieldLabel}><span><input type="checkbox" checked={tripleDoublePenalty} onChange={e => setTripleDoublePenalty(e.target.checked)} />连续三副双上退2级（地方玩法）</span></label>
                 <label style={styles.fieldLabel}>
                   <span>模型提供商</span>
@@ -238,8 +239,9 @@ export default function Lobby() {
                     }}
                     style={styles.select}
                   >
-                    <option value="hwcloud">HWCloud</option>
-                    <option value="local">Local (192.168.150.51)</option>
+                    <option value="fueternal">HW DeepSeek（Fueternal，默认）</option>
+                    <option value="local">Qwen（Fueternal）</option>
+                    <option value="deepseek">DeepSeek（官方）</option>
                   </select>
                 </label>
                 <label style={styles.fieldLabel}>

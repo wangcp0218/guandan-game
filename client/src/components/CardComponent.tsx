@@ -110,11 +110,12 @@ export default function CardComponent({ card, selected, onClick, onContextMenu, 
         '--joker-letter-size': typeof w === 'number' ? `${w * .23}px` : `calc(${w} * .23)`,
       } as React.CSSProperties}
     >
-      {!isJoker && <div className={`card-corner${isHandCard ? ' card-corner--hand' : ''}`}>
-        <span className="card-rank" style={{ fontSize: corner }}>{display}</span>
-        <span className="card-corner-suit" style={{ fontSize: cornerSuit }}>{suitSymbol}</span>
-      </div>}
-      {isJoker && <span className="joker-lettering" aria-hidden="true">{[...'JOKER'].map((letter, index) => <span key={index}>{letter}</span>)}</span>}
+      <div className={`card-corner${isHandCard ? ' card-corner--hand' : ''}`}>
+        {/* Hand corners are sized by CSS (clamped to the stack rise) so the
+            suit stays readable on stacked-card slivers. */}
+        <span className="card-rank" style={isHandCard ? undefined : { fontSize: corner }}>{display}</span>
+        {!isJoker && <span className="card-corner-suit" style={isHandCard ? undefined : { fontSize: cornerSuit }}>{suitSymbol}</span>}
+      </div>
 
       <div
         className={`card-center${isJoker ? ' card-center--joker' : ''}`}

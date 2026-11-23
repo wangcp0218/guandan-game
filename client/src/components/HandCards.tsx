@@ -1,5 +1,5 @@
-import React, { useRef, useState } from 'react';
-import { Card, CardPattern, Rank, Suit } from '../sharedTypes';
+import React, { useEffect, useRef } from 'react';
+import { Card, Rank, Suit } from '../sharedTypes';
 import CardComponent from './CardComponent';
 
 interface Props {
@@ -18,59 +18,63 @@ function stackOffset(index: number) {
   return `calc(${Array.from({ length: index }, () => 'var(--hand-stack-rise)').join(' + ')})`;
 }
 
-export default function HandCards({ cards, selectedIds, onToggle, onToggleStack, currentLevel, groupBySuit = false, arrangedGroups }: Props) {
-  const gesture = useRef<{
-    pointerId: number; x: number; y: number; select: boolean;
-    selected: Set<number>; visited: Set<number>;
-    targets: { id: number; bounds: DOMRect; order: number }[];
-  } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const suppressPointerClick = useRef(false);
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 10;
+const SUPPRESS_CLICK_MS = 600;
 
-  const visitPoint = (x: number, y: number) => {
-    const active = gesture.current;
-    if (!active) return;
-    const target = active.targets.find(({ bounds }) => x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom);
-    if (!target || active.visited.has(target.id)) return;
-    active.visited.add(target.id);
-    if (active.selected.has(target.id) !== active.select) onToggle(target.id);
+export default function HandCards({ cards, selectedIds, onToggle, onToggleStack, currentLevel, groupBySuit = false }: Props) {
+  // Touch long-press selects the whole stack; desktop keeps right-click. Hooks
+  // must run before the empty-hand early return below.
+  const longPress = useRef<{
+    timer?: number;
+    x: number;
+    y: number;
+    suppressUntil: number;
+    cardId: number;
+    pointerType: string;
+  }>({ x: 0, y: 0, suppressUntil: 0, cardId: -1, pointerType: '' });
+
+  const clearLongPress = () => {
+    if (longPress.current.timer !== undefined) {
+      clearTimeout(longPress.current.timer);
+      longPress.current.timer = undefined;
+    }
   };
-  const startGesture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!event.isPrimary || event.button !== 0) return;
-    suppressPointerClick.current = false;
-    // Portrait hands can scroll horizontally; preserve native panning there.
-    if (event.pointerType !== 'mouse' && !window.matchMedia('(orientation: landscape)').matches) return;
-    const slot = (event.target as HTMLElement).closest<HTMLElement>('[data-card-id]');
-    if (!slot) return;
-    const id = Number(slot.dataset.cardId);
-    // Freeze hit areas before selection lifts the cards, so a swipe cannot
-    // accidentally hit a newly exposed card underneath the original target.
-    const targets = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-card-id]')].map(element => ({
-      id: Number(element.dataset.cardId),
-      order: Number(element.dataset.hitOrder),
-      bounds: element.querySelector('.playing-card')!.getBoundingClientRect(),
-    })).sort((a, b) => b.order - a.order);
-    gesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, select: !selectedIds.has(id), selected: new Set(selectedIds), visited: new Set(), targets };
-    suppressPointerClick.current = true;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDragging(true);
-    visitPoint(event.clientX, event.clientY);
-    event.preventDefault();
+  useEffect(() => clearLongPress, []);
+
+  const startLongPress = (event: React.PointerEvent, group: Card[], cardId: number) => {
+    const state = longPress.current;
+    state.suppressUntil = 0;
+    state.pointerType = event.pointerType;
+    if (event.pointerType === 'mouse') return;
+    state.x = event.clientX;
+    state.y = event.clientY;
+    state.cardId = cardId;
+    clearLongPress();
+    state.timer = window.setTimeout(() => {
+      state.timer = undefined;
+      state.suppressUntil = Date.now() + SUPPRESS_CLICK_MS;
+      onToggleStack(group.map(({ id }) => id));
+    }, LONG_PRESS_MS);
   };
-  const moveGesture = (event: React.PointerEvent<HTMLDivElement>) => {
-    const active = gesture.current;
-    if (!active || active.pointerId !== event.pointerId) return;
-    // Sample the complete path, including when a fast swipe skips columns.
-    const steps = Math.max(1, Math.ceil(Math.hypot(event.clientX - active.x, event.clientY - active.y) / 4));
-    for (let step = 1; step <= steps; step++) visitPoint(active.x + (event.clientX - active.x) * step / steps, active.y + (event.clientY - active.y) * step / steps);
-    active.x = event.clientX; active.y = event.clientY;
+  const moveLongPress = (event: React.PointerEvent) => {
+    const state = longPress.current;
+    if (state.timer === undefined) return;
+    if (Math.hypot(event.clientX - state.x, event.clientY - state.y) > LONG_PRESS_SLOP_PX) clearLongPress();
   };
-  const finishGesture = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (gesture.current?.pointerId !== event.pointerId) return;
-    gesture.current = null;
-    setDragging(false);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  const toggleSingle = (cardId: number) => {
+    const state = longPress.current;
+    if (Date.now() < state.suppressUntil && state.cardId === cardId) return;
+    onToggle(cardId);
   };
+  const toggleStack = (group: Card[]) => {
+    // Android fires contextmenu during a touch long-press; the pointer timer
+    // already toggled the stack, so only mouse right-click acts here.
+    const type = longPress.current.pointerType;
+    if (type === 'touch' || type === 'pen') return;
+    onToggleStack(group.map(({ id }) => id));
+  };
+
   if (cards.length === 0) return null;
 
   const groupKey = (card: Card) => {
@@ -172,12 +176,16 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
                   // wrapper above the entire stack hides the middle cards in 3+ stacks.
                   zIndex: group.length - cardIndex,
                 }}
+                onPointerDown={event => startLongPress(event, group, card.id)}
+                onPointerMove={moveLongPress}
+                onPointerUp={clearLongPress}
+                onPointerCancel={clearLongPress}
               >
                 <CardComponent
                   card={card}
                   selected={selected}
-                  onClick={() => onToggle(card.id)}
-                  onContextMenu={() => onToggleStack(group.map(({ id }) => id))}
+                  onClick={() => toggleSingle(card.id)}
+                  onContextMenu={() => toggleStack(group)}
                   isLevelCard={card.rank === currentLevel}
                   size="hand"
                 />

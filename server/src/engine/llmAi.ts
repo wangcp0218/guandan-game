@@ -1,24 +1,25 @@
+import { STRATEGY_GUIDE, strategyBrief } from './aiStrategy';
 import { AiModelSelection, AiProvider, Card, CardPattern, PatternType, Rank } from '../../../shared/types';
 import { cardDisplayName, sortCards } from './card';
-import { analysisKey, buildPublicKnowledge } from './aiAnalysis';
+import { isBombPattern } from './compare';
+import { analysisKey, buildPublicKnowledge, buildTeamPlan, decisionTempo, passPosition, resourceCost } from './aiAnalysis';
 import type { DecisionAnalysis } from './aiAnalysis';
 import { recordAiModelCall } from './aiTelemetry';
 
-const HWCLOUD_BASE_URL = 'https://www.fueternal.com/api/v1';
-const LOCAL_BASE_URL = 'http://192.168.150.51:3000/v1';
-// The only gateway model exposed to players; GLM was dropped for its per-decision latency.
-const HWCLOUD_SELECTABLE_MODEL = 'HW-deepseek-v4.1-flash-1017';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+const LOCAL_BASE_URL = 'https://fueternal.com/api/v1';
+export const HW_AI_MODEL = 'HW-deepseek-v4.1-flash-1017';
+export const LOCAL_AI_MODEL = 'Qwen3.8-27';
 export const DEFAULT_AI_SELECTION: AiModelSelection = {
-  provider: 'hwcloud',
-  model: HWCLOUD_SELECTABLE_MODEL,
+  provider: 'fueternal',
+  model: HW_AI_MODEL,
 };
 // Model requests must stay well under the 90s turn watchdog so a timed-out request
 // can still fall back to rule-based AI.
 const MODEL_REQUEST_TIMEOUT = 20000;
 // Keep room for complete JSON; this is a ceiling, not a target length.
 // Thinking is explicitly disabled below to reduce per-turn latency.
-const HWCLOUD_MAX_OUTPUT_TOKENS = 4096;
-export const LOCAL_AI_MODEL = 'Qwen3.8-27';
+const DEEPSEEK_MAX_OUTPUT_TOKENS = 4096;
 
 interface ProviderConfig {
   baseUrl: string;
@@ -38,7 +39,69 @@ export interface AiRecentAction {
   pattern?: CardPattern;
 }
 
+export interface AiStrategyPlan {
+  next: string;
+  reconsiderWhen: string;
+}
+
+export interface AiStrategyMemory extends AiStrategyPlan {
+  afterAction: number;
+  executed: string;
+}
+
+export interface AiDecisionCheck {
+  goal: 'direct_finish' | 'block_opponent' | 'help_partner' | 'own_route' | 'organize' | 'hold_control';
+  resourceUse: 'preserve' | 'spend_justified' | 'none';
+  worstReply: string;
+  whyNotLowerCost: string;
+}
+
+const DECISION_GOALS = new Set<AiDecisionCheck['goal']>([
+  'direct_finish', 'block_opponent', 'help_partner', 'own_route', 'organize', 'hold_control',
+]);
+const RESOURCE_USES = new Set<AiDecisionCheck['resourceUse']>(['preserve', 'spend_justified', 'none']);
+
+function decisionCheckFailure(value: unknown) {
+  if (value == null) return 'missing_strategy_check';
+  if (typeof value !== 'object' || Array.isArray(value)) return 'invalid_strategy_check';
+  const check = value as Record<string, unknown>;
+  if (['goal', 'resource_use', 'worst_reply', 'why_not_lower_cost'].some(key => check[key] == null)) {
+    return 'missing_strategy_field';
+  }
+  if (!DECISION_GOALS.has(check.goal as AiDecisionCheck['goal'])) return 'invalid_strategy_goal';
+  if (!RESOURCE_USES.has(check.resource_use as AiDecisionCheck['resourceUse'])) return 'invalid_resource_use';
+  if (typeof check.worst_reply !== 'string' || !check.worst_reply.trim()
+    || typeof check.why_not_lower_cost !== 'string' || !check.why_not_lower_cost.trim()) {
+    return 'invalid_strategy_reason';
+  }
+  return undefined;
+}
+
+/** A compact visible audit, not hidden chain-of-thought. Accepted live model
+ * decisions must classify their goal, resource use and dangerous reply. */
+export function parseDecisionCheck(value: unknown): AiDecisionCheck | undefined {
+  if (decisionCheckFailure(value)) return undefined;
+  const check = value as Record<string, unknown>;
+  return {
+    goal: check.goal as AiDecisionCheck['goal'],
+    resourceUse: check.resource_use as AiDecisionCheck['resourceUse'],
+    worstReply: (check.worst_reply as string).trim().slice(0, 40),
+    whyNotLowerCost: (check.why_not_lower_cost as string).trim().slice(0, 40),
+  };
+}
+
+/** Optional, bounded planning notes; malformed notes never invalidate an action. */
+export function parseStrategyPlan(value: unknown): AiStrategyPlan | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const plan = value as Record<string, unknown>;
+  if (typeof plan.next !== 'string' || typeof plan.reconsider_when !== 'string') return undefined;
+  const next = plan.next.trim().slice(0, 80);
+  const reconsiderWhen = plan.reconsider_when.trim().slice(0, 80);
+  return next && reconsiderWhen ? { next, reconsiderWhen } : undefined;
+}
+
 export interface AiDecisionContext {
+  strategyMemory?: AiStrategyMemory;
   selfSeatIndex: number;
   partnerSeatIndex: number;
   lastPlayPlayerIndex: number;
@@ -58,10 +121,10 @@ function trimTrailingSlash(value: string): string {
 }
 
 function getProviderConfig(provider: AiProvider): ProviderConfig {
-  if (provider === 'local') {
+  if (provider === 'local' || provider === 'fueternal') {
     return {
       baseUrl: trimTrailingSlash(process.env.LOCAL_LLM_BASE_URL || LOCAL_BASE_URL),
-      apiKey: process.env.LOCAL_LLM_API_KEY || '',
+      apiKey: process.env.LOCAL_LLM_API_KEY || process.env.FUETERNAL_API_KEY || '',
     };
   }
   return {
@@ -74,13 +137,14 @@ export function normalizeAiSelection(
   provider: unknown,
   model: unknown,
 ): AiModelSelection {
-  const normalizedProvider: AiProvider = provider === 'local' ? 'local' : 'hwcloud';
+  const normalizedProvider: AiProvider = provider === 'local' || provider === 'deepseek' || provider === 'fueternal'
+    ? provider : DEFAULT_AI_SELECTION.provider;
   const candidate = typeof model === 'string' && /^[\w./:-]{1,120}$/.test(model.trim())
     ? model.trim()
     : '';
-  const configuredDefault = normalizedProvider === 'hwcloud'
-    ? (process.env.HWCLOUD_MODEL || DEFAULT_AI_SELECTION.model)
-    : '';
+  const configuredDefault = normalizedProvider === 'deepseek'
+    ? (process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash')
+    : normalizedProvider === 'fueternal' ? HW_AI_MODEL : LOCAL_AI_MODEL;
   const normalizedModel = isSelectableAiModel(normalizedProvider, candidate)
     ? candidate
     : !candidate && isSelectableAiModel(normalizedProvider, configuredDefault)
@@ -93,8 +157,8 @@ export function normalizeAiSelection(
 export function isSelectableAiModel(provider: AiProvider, model: string): boolean {
   const modelId = model.trim();
   if (!modelId) return false;
-  if (provider === 'hwcloud') return modelId === HWCLOUD_SELECTABLE_MODEL;
-  return modelId === LOCAL_AI_MODEL;
+  if (provider === 'deepseek') return !modelId.toLowerCase().includes('pro');
+  return modelId === (provider === 'fueternal' ? HW_AI_MODEL : LOCAL_AI_MODEL);
 }
 
 export function filterSelectableAiModels(provider: AiProvider, models: string[]): string[] {
@@ -139,8 +203,11 @@ function describeHand(cards: Card[], currentLevel: number): string {
 
 function describePattern(pattern: CardPattern | null): string {
   if (!pattern) return '无';
-  const cards = pattern.cards.map(card => cardDisplayName(card)).join(' ');
-  return `${pattern.type}(${cards})，长度${pattern.length}`;
+  const resolved = pattern.cards.map(card => {
+    const substitute = pattern.substitutions?.find(item => item.id === card.id);
+    return cardDisplayName(card) + (substitute ? '→' + cardDisplayName(substitute) : '');
+  }).join(' ');
+  return `${pattern.type}，声明点数${pattern.rank}，长度${pattern.length}，实体牌及替代：${resolved}`;
 }
 
 const PATTERN_NAMES: Record<PatternType, string> = {
@@ -172,39 +239,56 @@ function describeHistory(context?: AiDecisionContext): string {
   ).join('\n');
 }
 
-function describeActionCost(option: CardPattern, hand: Card[], currentLevel: number) {
-  const held = new Map<number, number>();
+function describeActionCost(option: CardPattern, hand: Card[], currentLevel: number, held: Map<number, number>) {
   const used = new Map<number, number>();
-  for (const card of hand) held.set(card.rank, (held.get(card.rank) || 0) + 1);
   for (const card of option.cards) used.set(card.rank, (used.get(card.rank) || 0) + 1);
+  const resources = resourceCost(hand, option, currentLevel);
   return {
     remaining_cards: hand.length - option.cards.length,
+    ...resources,
     uses_wildcards: option.cards.filter(card => card.rank === currentLevel && card.suit === 'H').length,
     uses_jokers: option.cards.filter(card => card.rank >= Rank.SmallJoker).length,
-    breaks_bomb: [...used].some(([rank, count]) => (held.get(rank) || 0) >= 4 && count < (held.get(rank) || 0)),
+    uses_aces: option.cards.filter(card => card.rank === Rank.Ace).length,
+    uses_bomb: isBombPattern(option),
+    breaks_bomb: resources.broken_natural_bombs.length > 0,
     splits_group: [...used].some(([rank, count]) => (held.get(rank) || 0) > count),
   };
 }
 
+function spendsControlResource(option: CardPattern, hand: Card[], currentLevel: number): boolean {
+  const held = new Map<number, number>();
+  for (const card of hand) held.set(card.rank, (held.get(card.rank) || 0) + 1);
+  const cost = describeActionCost(option, hand, currentLevel, held);
+  return requiresSpendCheck(cost);
+}
+
+function requiresSpendCheck(cost: ReturnType<typeof describeActionCost>): boolean {
+  return cost.uses_wildcards > 0 || cost.uses_jokers > 0 || cost.uses_aces > 0
+    || cost.natural_level_cards_spent > 0 || cost.breaks_bomb || cost.weakened_natural_bombs.length > 0 || cost.uses_bomb;
+}
+
 function compactActionGroups(
   options: CardPattern[], equivalentCounts: number[], hand: Card[], currentLevel: number,
-  includeAnalysis = false, analysis?: DecisionAnalysis,
+  analysis?: DecisionAnalysis,
 ) {
-  const groups = new Map<PatternType, unknown[][]>();
-  options.forEach((option, actionId) => {
-    const cost = describeActionCost(option, hand, currentLevel);
-    const row: unknown[] = [
-      actionId, option.cards.map(card => cardDisplayName(card)).join(' '),
-      option.rank, option.length, equivalentCounts[actionId] || 1,
-      cost.remaining_cards, cost.uses_wildcards, cost.uses_jokers,
-      cost.breaks_bomb, cost.splits_group,
-    ];
-    if (includeAnalysis) row.push(analysis?.candidates[analysisKey(option)]);
-    const members = groups.get(option.type) || [];
-    members.push(row);
-    groups.set(option.type, members);
+  const held = new Map<number, number>();
+  for (const card of hand) held.set(card.rank, (held.get(card.rank) || 0) + 1);
+  return options.map((option, actionId) => {
+    const key = analysisKey(option);
+    const cost = describeActionCost(option, hand, currentLevel, held);
+    return {
+      action_id: actionId, type: option.type, declared_rank: option.rank,
+      cards: option.cards.map(card => ({ id: card.id, card: cardDisplayName(card) })),
+      substitutions: option.substitutions?.map(card => ({ physical_id: card.id, replaces: cardDisplayName(card) })),
+      equivalent_variants: equivalentCounts[actionId] || 1,
+      required_resource_use: requiresSpendCheck(cost) ? 'spend_justified' : undefined,
+      cost: Object.fromEntries(Object.entries(cost).filter(([, value]) =>
+        Array.isArray(value) ? value.length > 0 : Boolean(value))),
+      two_tricks: analysis?.twoTricks?.[key],
+      next_cycle: analysis?.trickForecast?.[key],
+      analysis: analysis?.candidates[key],
+    };
   });
-  return [...groups].map(([type, members]) => [PATTERN_NAMES[type], members]);
 }
 
 function parseModelResponse(content: string): any {
@@ -220,6 +304,22 @@ function parseModelResponse(content: string): any {
   throw new Error('model response did not contain valid JSON');
 }
 
+export function decodeModelDecision(data: any, count: number, free: boolean):
+  { parsed: any; action: number | 'PASS' } | { failure: string } {
+  const choice = data?.choices?.[0];
+  if (choice?.finish_reason === 'length') return { failure: 'truncated' };
+  const content = choice?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) return { failure: 'empty_content' };
+  let parsed: any;
+  try { parsed = parseModelResponse(content); } catch { return { failure: 'invalid_json' }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { failure: 'invalid_action' };
+  const raw = parsed.action_id ?? parsed.option_id;
+  if (raw === 'PASS') return free ? { failure: 'illegal_pass' } : { parsed, action: 'PASS' };
+  const action = typeof raw === 'string' && /^\d+$/.test(raw) ? Number(raw) : raw;
+  if (!Number.isInteger(action) || action < 0 || action >= count) return { failure: 'invalid_action' };
+  return { parsed, action };
+}
+
 export async function llmFindBestPlay(
   hand: Card[],
   legalPlays: CardPattern[],
@@ -232,6 +332,7 @@ export async function llmFindBestPlay(
   equivalentCounts: number[] = [],
   handCombinations: CardPattern[] = legalPlays,
   handCombinationEquivalentCounts: number[] = equivalentCounts,
+  onPlan?: (plan: AiStrategyPlan) => void,
 ): Promise<CardPattern | null | undefined> {
   const modelStarted = performance.now();
   const normalizedSelection = normalizeAiSelection(selection.provider, selection.model);
@@ -242,40 +343,31 @@ export async function llmFindBestPlay(
   }
   if (legalPlays.length === 0) return isFreePlay ? undefined : null;
 
-  const systemPrompt = `你是竞技掼蛋选手，与对家合作争取双上和升级。程序保证合法性，你只负责战略选择。
-
-规则：两副牌、四人两队；牌型含单、对、三张、三带二、5张顺子、3连对、2连三、炸弹、同花顺、四王炸。红桃级牌可代替除王外任意牌。大王>小王>级牌>A>K…>2；炸弹先比张数，同花顺大于五炸小于六炸，四王炸最大。平台输入优先。
-
-信息边界：只用自己手牌、公开历史、各家余牌、进还贡、当前桌面和程序分析。未见牌不确定属于谁；过牌不等于不能接。hand_combinations是全部手牌结构，仅供规划；legal_actions是当前可选动作。它们按对应schema解释，等价实体牌已合并并由本地评分保留较优代表。只能返回legal_actions中的action_id。
-
-目标顺序：本方有利名次与升级、双上、阻止对方双上、送队友、控制牌权、保存炸弹/同花顺/逢人配、减少剩余手数和坏结构。不要只追求自己先走。
-
-策略：出牌张数不等于收益，先比较剩余结构。比较出牌后剩余手数、小孤牌和难走的小对子；拆三张或对子后若留下小孤牌应降低优先级，若余牌仍能组成顺子等结构或直接走完则不机械惩罚。三连对、二连三不因一次出6张而自动优先。领出看减手数、后续回手和队友需求；跟牌通常用最低充分牌力。同类结构相近时先小后大，但对手报双可先用大对控权。队友牌默认不压；仅为直接走完、必要拦截或明确团队收益接管。敌方压过队友后可反压。炸弹用于阻止对手走牌、送队友或形成连续牌权，不赢低价值一轮；炸后评估续牌。逢人配优先组成强结构，残局可降低保存成本。
-
-跟单控权：对手出级牌时，比较用散王接管与过牌的后续收益；若接管后可转出成组牌、送报单/报双队友或阻断对手连续走牌，应积极考虑最小够用的王。区分散王、王对和四王炸的保存成本，不因王珍贵就机械过牌。大王是最大单张，即使可能被炸，也有单张控权价值；小王仍可能被大王反压，接管不保证连续出牌。队友领出的级牌仍遵循合作原则。
-
-残局：任一玩家≤5张时规划未来1至3手。对手报单保留单张控制，报双保留对子控制；队友报单/双时创造对应牌型。下家只剩1张且决定出单时必须出最大合法单张；下家剩2张且决定出对子时必须出最大合法对子，但不强制该牌型或强制放弃PASS。
-
-程序分析限制：remainingTurns不含对手干扰；抽样模拟不是确定胜率，样本少或接近时优先结构与本地排序；incomplete_enumeration无有效胜率。不要展示冗长推理，只输出指定JSON。`;
+  const lastPlayer = context?.players.find(p => p.seatIndex === context.lastPlayPlayerIndex);
+  const scenario = isFreePlay ? '自由领牌' : lastPlayer?.relation === 'partner' ? '跟队友牌' : '跟对手牌';
+  const systemPrompt = `你是四人两队掼蛋选手，只用自己手牌和公开信息。红桃级牌是逢人配；单张大王>小王>级牌>A；顺子按声明点数，A2345最低。
+${STRATEGY_GUIDE}
+当前局面：${scenario}。after_pass 给出剩余应牌座位及无人再接时的领牌人；对家无法再接时须自己比较拦截。下家报单/双时比较最大普通应牌和完整炸弹。
+每个 legal_actions 行给出实体牌、替代、资源成本和可用分析；cost 省略的项为零、否或空，分析缺项表示未知。声称留炸须核对 remaining_rank_bombs。decision_check.resource_use 须符合所选行的 required_resource_use；PASS 只能 preserve 或 none。
+remainingTurns 是余牌静态手数，exact=false 是上界。next_cycle 与 pass_next_cycle 是同批底牌一圈后本队/队友占先和双方先走比例；replyFinishRisk 是对手有一手接完的抽样比例。只把 controlProven 当公开控牌证明。
+${analysis?.twoTricks ? 'two_tricks 与 pass_two_tricks 是同批底牌推到首次有人走完或两墩结束的比例；retainedLead 是无人走完且本队赢第二墩。position 仅比较同批无人走完的局面：turnAdvantage 是对手总余牌手数减本方，controlBalance 是双方持炸及持王或级牌的座位数之差，readyLead 是本方减对方领牌即走完的比例。短程指标不代表终局胜率。\n' : ''}team_routes 按 action_id 关联候选，PASS 的预测见 local_analysis。hand_combinations 是可供以后领出的代表组合；同一实体组合直接引用 action_id。根据当前公开事实重验 strategy_memory。`;
 
   const lastPlayerSnapshot = context?.players.find(player =>
     player.seatIndex === context.lastPlayPlayerIndex
   );
   const relationNames = { self: '自己', partner: '队友', opponent: '对手' } as const;
-  const lastPlayer = lastPlayerSnapshot
+  const lastPlayerLabel = lastPlayerSnapshot
     ? `座位${lastPlayerSnapshot.seatIndex}（${relationNames[lastPlayerSnapshot.relation]}）`
     : '无';
-  const minimumActiveCount = context?.players
-    .filter(player => player.finishRank === null)
-    .reduce((minimum, player) => Math.min(minimum, player.cardCount), Number.POSITIVE_INFINITY);
-  const stage = minimumActiveCount !== undefined && minimumActiveCount <= 5
-    ? '残局'
-    : hand.length >= 20 ? '开局' : hand.length >= 10 ? '中盘' : '收官';
+  const tempo = decisionTempo(context);
+  const stage = tempo.stage;
   const knowledge = context ? buildPublicKnowledge(hand, context) : null;
   const representedCounts = legalPlays.map((_, index) => equivalentCounts[index] || 1);
-  const representedHandCombinationCounts = handCombinations
-    .map((_, index) => handCombinationEquivalentCounts[index] || 1);
+  const actionIds = new Map(legalPlays.map((play, index) => [analysisKey(play), index]));
   const input = {
+    strategy_framework: strategyBrief(hand, currentLevel, context),
+    strategy_memory: context?.strategyMemory,
+    public_action_count: context?.actionHistory?.length,
     seat: context?.selfSeatIndex ?? '未知',
     partner_seat: context?.partnerSeatIndex ?? '未知',
     seat_order: '座位0→座位1→座位2→座位3→座位0（顺时针）',
@@ -284,13 +376,32 @@ export async function llmFindBestPlay(
       ? `第${context.roundNumber}局，队伍A ${context.teamLevels[0]}级，队伍B ${context.teamLevels[1]}级，队伍${context.leadingTeam === 0 ? 'A' : 'B'}在台`
       : '未提供',
     stage,
+    scenario,
+    tempo,
+    team_plan: analysis?.teamPlan ?? buildTeamPlan(hand, handCombinations, context),
+    team_routes: analysis?.teamRoutes?.flatMap(({ actionKey, simulation: _simulation, ...route }) => {
+      const actionId = actionKey === null ? 'PASS' : actionIds.get(actionKey);
+      if (actionId === undefined || (actionId === 'PASS' && isFreePlay)) return [];
+      return [{ ...route, action_id: actionId }];
+    }),
     turn_mode: isFreePlay ? '自由出牌，必须选择动作' : '跟牌，可选择合法动作或PASS',
     hand: describeHand(hand, currentLevel),
+    verified_resources: {
+      card_count: hand.length,
+      small_jokers: hand.filter(c => c.rank === Rank.SmallJoker).length,
+      big_jokers: hand.filter(c => c.rank === Rank.BigJoker).length,
+      aces: hand.filter(c => c.rank === Rank.Ace).length,
+      natural_level_cards: hand.filter(c => c.rank === currentLevel && c.suit !== 'H').length,
+      wildcards: hand.filter(c => c.rank === currentLevel && c.suit === 'H').length,
+      rank_bombs_as_dealt: [...new Set(hand.map(c => c.rank))].filter(rank =>
+        rank < Rank.SmallJoker && hand.filter(c => c.rank === rank).length >= 4),
+    },
     wildcards: hand
       .filter(card => card.rank === currentLevel && card.suit === 'H')
       .map(card => cardDisplayName(card)),
+    after_pass: context && !isFreePlay ? passPosition(context, lastPattern) : undefined,
     current_trick: {
-      player: lastPlayer,
+      player: lastPlayerLabel,
       pattern: describePattern(lastPattern),
     },
     remaining_counts: context?.players.map(player => ({
@@ -314,6 +425,8 @@ export async function llmFindBestPlay(
         .flatMap(action => action.pattern?.cards || []), currentLevel),
     })) || [],
     public_inference: knowledge ? {
+      seat_beliefs: analysis?.seatBeliefs,
+      belief_caveat: '仅16份以内公开行为加权抽样，非真实底牌或校准概率；高牌存在不代表必然能回手',
       unseen_controls: describeHand(knowledge.unseen.filter(card =>
         card.rank >= Rank.King || card.rank === currentLevel
       ), currentLevel),
@@ -331,6 +444,8 @@ export async function llmFindBestPlay(
       from_seat: transfer.fromSeat, to_seat: transfer.toSeat, card: cardDisplayName(transfer.card),
     })),
     local_analysis: analysis ? {
+      pass_next_cycle: analysis.trickForecast?.PASS,
+      pass_two_tricks: analysis.twoTricks?.PASS,
       hand_turns: analysis.handTurns, simulation: analysis.simulation,
       pass_simulation: analysis.passSimulation,
       caveat: '手数不含对手干扰；抽样模拟不是校准后的真实胜率',
@@ -341,26 +456,25 @@ export async function llmFindBestPlay(
       represented_equivalent_actions: representedCounts.reduce((sum, count) => sum + count, 0),
       policy: '按牌型分层保留的高价值战略组合；等价实体选择合并，由本地评分保留最少损伤的代表牌',
     },
-    action_group_schema: ['type', 'members'],
-    hand_combination_member_schema: [
-      'combination_id', 'cards', 'rank', 'length', 'equivalent_variants',
-      'remaining_cards', 'uses_wildcards', 'uses_jokers', 'breaks_bomb', 'splits_group',
-    ],
     hand_combinations: isFreePlay ? {
       same_as_legal_actions: true,
-    } : compactActionGroups(
-      handCombinations, representedHandCombinationCounts, hand, currentLevel,
-    ),
-    legal_action_member_schema: [
-      'action_id', 'cards', 'rank', 'length', 'equivalent_variants',
-      'remaining_cards', 'uses_wildcards', 'uses_jokers', 'breaks_bomb', 'splits_group', 'analysis',
-    ],
-    legal_actions: compactActionGroups(
-      legalPlays, representedCounts, hand, currentLevel, true, analysis,
-    ),
+    } : handCombinations.map((play, index) => {
+      const actionId = actionIds.get(analysisKey(play));
+      const variants = handCombinationEquivalentCounts[index] || 1;
+      if (actionId !== undefined) return { action_id: actionId, equivalent_variants: variants };
+      return { type: PATTERN_NAMES[play.type], declared_rank: play.rank,
+        cards: play.cards.map(card => `${card.id}=${cardDisplayName(card)}`).join(' '),
+        substitutions: play.substitutions?.map(card => `${card.id}→${cardDisplayName(card)}`),
+        equivalent_variants: variants };
+    }),
+    legal_actions: compactActionGroups(legalPlays, representedCounts, hand, currentLevel, analysis),
   };
+  const outputExample = '{"action_id":0,"decision_check":{"goal":"organize","resource_use":"preserve","worst_reply":"对手用更高同型接管","why_not_lower_cost":"该动作保住回手牌"},"brief_reason":"先走低组合","strategy_plan":{"next":"有牌权再领低对","reconsider_when":"对手报单"}}';
   const userPrompt = `请根据以下牌桌输入选择动作：\n${JSON.stringify(input)}\n
-输出格式：{"action_id":数字或"PASS","intent":"走牌/控权/送队友/阻击对手/整理牌型/试探/保留实力","confidence":0.00,"brief_reason":"不超过40个汉字","risk":"主要风险"}。只有跟牌时可选择PASS。`;
+只输出一个紧凑JSON。格式示例：${outputExample}
+必填action_id（整数或跟牌时的"PASS"）与decision_check的四个字段。
+goal必须是其中一项：${[...DECISION_GOALS].join('、')}。resource_use必须是其中一项：${[...RESOURCE_USES].join('、')}。worst_reply和why_not_lower_cost各20字内，无则填“无”。
+可选brief_reason（20字内）和strategy_plan（下一步，32字内；失效条件，32字内）。不复述牌桌、候选或推理，不加额外字段或Markdown。`;
   const promptCharacters = systemPrompt.length + userPrompt.length;
 
   try {
@@ -375,12 +489,14 @@ export async function llmFindBestPlay(
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        max_tokens: normalizedSelection.provider === 'hwcloud' ? HWCLOUD_MAX_OUTPUT_TOKENS : 192,
+        max_tokens: normalizedSelection.provider === 'deepseek' ? DEEPSEEK_MAX_OUTPUT_TOKENS : 4096,
       };
-      if (normalizedSelection.provider === 'hwcloud') {
+      if (normalizedSelection.provider === 'deepseek' || normalizedSelection.provider === 'fueternal') {
         requestBody.thinking = { type: 'disabled' };
         requestBody.response_format = { type: 'json_object' };
       } else {
+        requestBody.enable_thinking = false;
+        requestBody.chat_template_kwargs = { enable_thinking: false };
         requestBody.temperature = stage === '残局' ? 0 : 0.25;
       }
       response = await fetch(`${providerConfig.baseUrl}/chat/completions`, {
@@ -404,57 +520,73 @@ export async function llmFindBestPlay(
       return undefined;
     }
 
-    const choice = data.choices?.[0];
+    const choice = data?.choices?.[0];
     const content = choice?.message?.content;
     // Record diagnostics without storing prompts, cards or reasoning text.
     console.info('[LLM AI response]', JSON.stringify({
       provider: normalizedSelection.provider,
       model: normalizedSelection.model,
       finishReason: choice?.finish_reason ?? null,
-      promptTokens: data.usage?.prompt_tokens ?? null,
-      completionTokens: data.usage?.completion_tokens ?? null,
-      reasoningTokens: data.usage?.completion_tokens_details?.reasoning_tokens ?? null,
+      promptTokens: data?.usage?.prompt_tokens ?? null,
+      completionTokens: data?.usage?.completion_tokens ?? null,
+      reasoningTokens: data?.usage?.completion_tokens_details?.reasoning_tokens ?? null,
       contentLength: typeof content === 'string' ? content.length : 0,
       reasoningLength: typeof choice?.message?.reasoning_content === 'string'
         ? choice.message.reasoning_content.length : 0,
       elapsedMs: Math.round(performance.now() - modelStarted),
     }));
-    if (choice?.finish_reason === 'length' || typeof content !== 'string' || !content.trim()) {
+    const decision = decodeModelDecision(data, legalPlays.length, isFreePlay);
+    if ('failure' in decision) {
       recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
-      const cause = choice?.finish_reason === 'length' ? 'output_token_limit' : 'empty_content';
-      console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] ${cause}; using rule-based AI`);
+      // Never log response text, prompts or credentials.
+      console.warn('[AI response]', JSON.stringify({
+        provider: normalizedSelection.provider, model: normalizedSelection.model,
+        reason: decision.failure,
+        cause: decision.failure === 'truncated' ? 'output_token_limit' : decision.failure,
+        finishReason: data?.choices?.[0]?.finish_reason,
+        contentLength: data?.choices?.[0]?.message?.content?.length || 0,
+        completionTokens: data?.usage?.completion_tokens,
+        reasoningTokens: data?.usage?.completion_tokens_details?.reasoning_tokens,
+        round: context?.roundNumber, seat: context?.selfSeatIndex,
+        action: context?.actionHistory?.length,
+      }));
       return undefined;
     }
-    const parsed = parseModelResponse(content);
-    const rawActionId = parsed.action_id ?? parsed.option_id;
-    const optionId = typeof rawActionId === 'string' && /^\d+$/.test(rawActionId)
-      ? Number(rawActionId)
-      : rawActionId;
+    const { parsed, action: optionId } = decision;
+    const decisionCheck = parseDecisionCheck(parsed.decision_check);
+    const selectedPlay = optionId === 'PASS' ? null : legalPlays[optionId];
+    const inconsistentResource = decisionCheck && (selectedPlay
+      ? spendsControlResource(selectedPlay, hand, currentLevel)
+        && decisionCheck.resourceUse !== 'spend_justified'
+      : decisionCheck.resourceUse === 'spend_justified');
+    if (context && (!decisionCheck || inconsistentResource)) {
+      recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
+      console.warn('[AI response]', JSON.stringify({
+        provider: normalizedSelection.provider, model: normalizedSelection.model,
+        reason: inconsistentResource ? 'inconsistent_resource_check' : decisionCheckFailure(parsed.decision_check),
+        round: context.roundNumber, seat: context.selfSeatIndex,
+        action: context.actionHistory?.length,
+      }));
+      return undefined;
+    }
     const reasonSource = parsed.brief_reason ?? parsed.reason;
     const reason = typeof reasonSource === 'string' ? reasonSource.slice(0, 40) : '未提供理由';
-    if (rawActionId === 'PASS' || optionId === null) {
-      if (isFreePlay) {
-        recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
-        console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] rejected pass during free play; using rule-based AI`);
-        return undefined;
-      }
+    if (optionId === 'PASS') {
+      const plan = parseStrategyPlan(parsed.strategy_plan);
+      if (plan) onPlan?.(plan);
       recordAiModelCall('pass', performance.now() - modelStarted, promptCharacters);
-      console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] pass; reason=${reason}`);
+      console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] pass; goal=${decisionCheck?.goal || 'unchecked'}; reason=${reason}`);
       return null;
     }
-    if (!Number.isInteger(optionId) || optionId < 0 || optionId >= legalPlays.length) {
-      recordAiModelCall('invalid_response', performance.now() - modelStarted, promptCharacters);
-      console.warn(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] invalid option=${String(optionId)}; using rule-based AI`);
-      return undefined;
-    }
-
+    const plan = parseStrategyPlan(parsed.strategy_plan);
+    if (plan) onPlan?.(plan);
     recordAiModelCall('success', performance.now() - modelStarted, promptCharacters);
-    console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] option=${optionId}; reason=${reason}`);
+    console.log(`[LLM AI ${normalizedSelection.provider}/${normalizedSelection.model}] option=${optionId}; goal=${decisionCheck?.goal || 'unchecked'}; resource=${decisionCheck?.resourceUse || 'unchecked'}; reason=${reason}`);
     return legalPlays[optionId];
   } catch (error: any) {
     if (error.name === 'AbortError') {
       recordAiModelCall('timeout', performance.now() - modelStarted, promptCharacters);
-      console.log(`[LLM AI] ${normalizedSelection.provider}/${normalizedSelection.model} timeout, using rule-based AI`);
+      console.log(`[LLM AI] ${normalizedSelection.provider}/${normalizedSelection.model} timeout, trying next model or local fallback`);
     } else {
       recordAiModelCall(error instanceof SyntaxError ? 'invalid_response' : 'error',
         performance.now() - modelStarted, promptCharacters);

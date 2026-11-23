@@ -18,7 +18,8 @@ const TEAM_COLORS = {
   opponent: '#e74c3c',
 };
 
-export default function PlayerInfoComponent({ player, position, isCurrent, isMe, isPartner, secondsLeft }: Props) {
+export default function PlayerInfoComponent({ player, position, isCurrent, isMe, isPartner }: Props) {
+  const reported = player.reportedCardCount !== undefined && player.cardCount > 0;
   const bgColor = isMe ? TEAM_COLORS.mine : isPartner ? TEAM_COLORS.partner : TEAM_COLORS.opponent;
   const reportCount = player.reportedCardCount;
   const hasReport = reportCount !== undefined && player.cardCount > 0;
@@ -39,8 +40,7 @@ export default function PlayerInfoComponent({ player, position, isCurrent, isMe,
     && announcement.count === reportCount;
 
   return (
-    <div className={`player-info player-info--${position}${isCurrent ? ' is-current' : ''}${isCurrent && secondsLeft != null && secondsLeft <= 10 ? ' is-urgent' : ''}`} data-seconds-left={isCurrent ? secondsLeft ?? undefined : undefined} style={{
-      position: 'relative',
+    <div className={`player-info${isCurrent ? ' is-current' : ''}${reported ? ' has-card-report' : ''}`} style={{
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -95,6 +95,9 @@ export default function PlayerInfoComponent({ player, position, isCurrent, isMe,
       <span style={{ fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
         {player.name} {isMe ? '(我)' : ''}
       </span>
+      {reported && <strong className={`card-report-badge${player.cardCount <= 2 ? ' is-urgent' : ''}`}>
+        {player.cardCount === 1 ? '报单' : player.cardCount === 2 ? '报双' : '已报牌'} · 剩 {player.cardCount} 张
+      </strong>}
       <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
         Lv.{player.level} | {player.cardCount === 0 ? '已出完' : player.reportedCardCount !== undefined ? `剩余${player.cardCount}张` : '未报牌'}
       </span>
