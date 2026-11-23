@@ -128,8 +128,8 @@ function getProviderConfig(provider: AiProvider): ProviderConfig {
     };
   }
   return {
-    baseUrl: trimTrailingSlash(process.env.HWCLOUD_BASE_URL || HWCLOUD_BASE_URL),
-    apiKey: process.env.HWCLOUD_API_KEY || '',
+    baseUrl: trimTrailingSlash(process.env.DEEPSEEK_BASE_URL || DEEPSEEK_BASE_URL),
+    apiKey: process.env.DEEPSEEK_API_KEY || '',
   };
 }
 

@@ -11,27 +11,28 @@ import {
 import { generateLegalPlays, findSmartPlay } from './ai';
 import { Rank, Suit } from '../../../shared/types';
 
-test('HWCloud only exposes the selected gateway model', () => {
-  assert.equal(isSelectableAiModel('hwcloud', 'HW-deepseek-v4.1-flash-1017'), true);
-  assert.equal(isSelectableAiModel('hwcloud', 'HW-glm-5.3'), false);
-  assert.equal(isSelectableAiModel('hwcloud', 'deepseek-v4-flash'), false);
-  assert.equal(isSelectableAiModel('hwcloud', 'deepseek-v4-pro'), false);
-  assert.equal(isSelectableAiModel('hwcloud', 'Qwen3.8-27'), false);
+test('DeepSeek exposes queried non-Pro models and rejects Pro models', () => {
+  assert.equal(isSelectableAiModel('deepseek', 'deepseek-v4-flash'), true);
+  assert.equal(isSelectableAiModel('deepseek', 'deepseek-chat'), true);
+  assert.equal(isSelectableAiModel('deepseek', 'deepseek-reasoner'), true);
+  assert.equal(isSelectableAiModel('deepseek', 'deepseek-v4-pro'), false);
+  assert.equal(isSelectableAiModel('deepseek', 'DEEPSEEK-PRO-FAST'), false);
   assert.deepEqual(
-    filterSelectableAiModels('hwcloud', [
-      'deepseek-v4.1-flash',
-      'HW-glm-5.3',
-      'HW-deepseek-v4.1-flash-1017',
-      'HW-glm-5.3',
+    filterSelectableAiModels('deepseek', [
+      'deepseek-chat',
+      'deepseek-v4-flash',
+      'deepseek-reasoner',
+      'deepseek-v4-pro',
+      'deepseek-v4-flash',
     ]),
-    ['HW-deepseek-v4.1-flash-1017'],
+    ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-flash'],
   );
   assert.deepEqual(
-    normalizeAiSelection('hwcloud', 'HW-deepseek-v4.1-flash-1017'),
-    { provider: 'hwcloud', model: 'HW-deepseek-v4.1-flash-1017' },
+    normalizeAiSelection('deepseek', 'deepseek-chat'),
+    { provider: 'deepseek', model: 'deepseek-chat' },
   );
-  assert.deepEqual(normalizeAiSelection('hwcloud', 'HW-glm-5.3'), {
-    provider: 'hwcloud',
+  assert.deepEqual(normalizeAiSelection('deepseek', 'deepseek-v4-pro'), {
+    provider: 'deepseek',
     model: '',
   });
   assert.deepEqual(normalizeAiSelection('deepseek', undefined), {

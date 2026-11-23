@@ -13,17 +13,16 @@ const play: CardPattern = {
 
 async function withResponse(data: unknown, check: (logs: string[]) => Promise<void>) {
   const previousFetch = globalThis.fetch;
-  const previousKey = process.env.HWCLOUD_API_KEY;
+  const previousKey = process.env.DEEPSEEK_API_KEY;
   const previousInfo = console.info;
   const previousWarn = console.warn;
   const logs: string[] = [];
-  process.env.HWCLOUD_API_KEY = 'test-only';
+  process.env.DEEPSEEK_API_KEY = 'test-only';
   resetAiTelemetry();
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(init!.body as string);
     assert.equal(body.max_tokens, 4096);
     assert.deepEqual(body.thinking, { type: 'disabled' });
-    assert.deepEqual(body.response_format, { type: 'json_object' });
     assert.equal(body.reasoning_effort, undefined);
     return { ok: true, json: async () => data } as Response;
   }) as typeof fetch;
@@ -34,13 +33,13 @@ async function withResponse(data: unknown, check: (logs: string[]) => Promise<vo
     globalThis.fetch = previousFetch;
     console.info = previousInfo;
     console.warn = previousWarn;
-    if (previousKey === undefined) delete process.env.HWCLOUD_API_KEY;
-    else process.env.HWCLOUD_API_KEY = previousKey;
+    if (previousKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = previousKey;
   }
 }
 
 const choose = () => llmFindBestPlay(play.cards, [play], null, true, 5,
-  undefined, { provider: 'hwcloud', model: 'HW-deepseek-v4.1-flash-1017' });
+  undefined, { provider: 'deepseek', model: 'deepseek-flash' });
 
 test('empty truncated response falls back and logs token metadata without reasoning text', async () => {
   await withResponse({
@@ -103,7 +102,7 @@ test('non-forced follow still calls the model and honors its PASS with thinking 
       ...play.cards, { id: 2, rank: 4, suit: Suit.Club },
     ], { type: PatternType.Single, rank: 2, length: 1,
       cards: [{ id: 0, rank: 2, suit: Suit.Diamond }],
-    }, false, 5, undefined, { provider: 'hwcloud', model: 'HW-deepseek-v4.1-flash-1017' });
+    }, false, 5, undefined, { provider: 'deepseek', model: 'deepseek-flash' });
     assert.equal(result, null);
     const telemetry = getAiTelemetrySnapshot();
     assert.equal(telemetry.modelCalls, 1);

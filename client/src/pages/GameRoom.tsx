@@ -57,6 +57,10 @@ export default function GameRoom() {
   const [relationPromptOpen, setRelationPromptOpen] = useState(requiresRelationChoice);
   const [relationError, setRelationError] = useState('');
 
+  const [arrangeEnabled, setArrangeEnabled] = useState(false);
+  const [arrangement, setArrangement] = useState<{ key: string; groups: CardPattern[] } | null>(null);
+  const handKey = `${roomId}:${gameState?.roundNumber}:${gameState?.currentLevel}:${myCards.map(card => card.id).sort((a, b) => a - b).join(',')}`;
+
   const buildShareUrl = () => {
     const url = new URL(`game/${encodeURIComponent(roomId || '')}`, new URL(import.meta.env.BASE_URL, window.location.origin));
     url.searchParams.set('invite', '1');
@@ -171,6 +175,34 @@ export default function GameRoom() {
     const timer = window.setTimeout(() => setInviteNotice(''), 5000);
     return () => window.clearTimeout(timer);
   }, [inviteNotice]);
+
+  useEffect(() => {
+    setArrangeEnabled(false);
+    setArrangement(null);
+  }, [roomId, gameState?.roundNumber]);
+
+  useEffect(() => {
+    if (!arrangeEnabled || gameState?.phase !== GamePhase.Playing || !myCards.length) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      if (!active) return;
+      setArrangeEnabled(false);
+      setErrorMsg('理牌超时，请重试');
+    }, 5000);
+    getSocket()?.emit('arrange_hand', (groups: CardPattern[] | null) => {
+      if (!active) return;
+      window.clearTimeout(timer);
+      const ids = groups?.flatMap(group => group.cards.map(card => card.id)) || [];
+      // A hand can change while the request is in flight. Never show stale cards.
+      if (!groups || ids.length !== myCards.length || new Set(ids).size !== ids.length
+        || ids.some(id => !myCards.some(card => card.id === id))) {
+        setArrangeEnabled(false);
+        return;
+      }
+      setArrangement({ key: handKey, groups });
+    });
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [arrangeEnabled, handKey, gameState?.phase]);
 
   useEffect(() => {
     const deadline = gameState?.actionDeadline;

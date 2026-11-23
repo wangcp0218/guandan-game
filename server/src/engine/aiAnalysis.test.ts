@@ -388,8 +388,8 @@ test('endgame uses balanced complete samples and labels exhausted/incomplete run
 test('LLM input contains complete public memory and local analysis, not sampled hands', async () => {
   resetAiTelemetry();
   const previousFetch = globalThis.fetch;
-  const previousKey = process.env.HWCLOUD_API_KEY;
-  process.env.HWCLOUD_API_KEY = 'test-only';
+  const previousKey = process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_API_KEY = 'test-only';
   const deck = createDeck();
   const hands = [[deck[0]], [deck[1]], [deck[2]], [deck[3]]];
   const context = contextFor(hands);
@@ -453,8 +453,8 @@ test('LLM input contains complete public memory and local analysis, not sampled 
     assert.ok(telemetry.promptCharacters > 0);
   } finally {
     globalThis.fetch = previousFetch;
-    if (previousKey === undefined) delete process.env.HWCLOUD_API_KEY;
-    else process.env.HWCLOUD_API_KEY = previousKey;
+    if (previousKey === undefined) delete process.env.DEEPSEEK_API_KEY;
+    else process.env.DEEPSEEK_API_KEY = previousKey;
   }
 });
 

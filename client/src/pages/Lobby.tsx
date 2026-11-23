@@ -13,8 +13,7 @@ function defaultRoomName() {
 
 const HW_AI_MODEL = 'HW-deepseek-v4.1-flash-1017';
 const LOCAL_AI_MODEL = 'Qwen3.8-27';
-const DEFAULT_HWCLOUD_MODEL = 'HW-deepseek-v4.1-flash-1017';
-const PROVIDER_LABELS: Record<AiProvider, string> = { hwcloud: 'HWCloud', local: 'Local' };
+const PROVIDER_LABELS: Record<AiProvider, string> = { deepseek: 'DeepSeek', local: 'Local', fueternal: 'Fueternal' };
 
 function filterSelectableModels(provider: AiProvider, models: string[]) {
   return Array.from(new Set(models.filter(model => provider === 'deepseek'

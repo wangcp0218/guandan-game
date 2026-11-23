@@ -6,6 +6,7 @@ import {
 import { createDeck, shuffleDeck, dealCards, sortCards, isJoker, effectiveRank } from '../engine/card';
 import { identifyPattern, isValidPlay, declarePatterns } from '../engine/patterns';
 import { canBeat, canFreePlay } from '../engine/compare';
+import { arrangeHand } from '../engine/arrangeHand';
 import { getTeam, getLevelDelta, canResistTribute, selectTributeCard, selectReturnTributeCard, isValidReturnTributeCard } from '../engine/rules';
 import type { AiDecisionTrace } from '../engine/ai';
 import { findSmartPlay, generateLegalPlays, orderHintPlays } from '../engine/ai';
@@ -1064,12 +1065,34 @@ export class GameRoom {
   private handleTimeout() {
     if (!this.state || this.state.phase !== GamePhase.Playing) return;
     const player = this.players[this.state.currentPlayerIndex];
-    if (player.isAI || !this.state.lastPlay) {
-      ++this.turnGeneration;
-      if (!this.executePreparedPlay()) void this.aiPlay(false);
-      return;
+    if (!player) return;
+    // A prepared action from the stalled decision wins: it was already validated
+    // against the live state, so execute it instead of inventing a fallback.
+    if (this.executePreparedPlay()) return;
+    const expiredDeadline = this.state.actionDeadline;
+    let result: { success: boolean; error?: string };
+    if (!this.state.lastPlay) {
+      const hand = this.hands.get(player.id) || [];
+      // The watchdog must finish immediately and must not depend on strategy
+      // enumeration or a generated declaration being accepted. Any single is
+      // legal when leading, including the level's heart wildcard.
+      const card = [...hand].sort((a, b) =>
+        effectiveRank(a.rank, this.state!.currentLevel) - effectiveRank(b.rank, this.state!.currentLevel)
+        || a.id - b.id
+      )[0];
+      if (!card) {
+        console.error('[turn timeout] active player has no cards', { roomId: this.id, playerId: player.id });
+        return;
+      }
+      result = this.playCards(player.id, [card]);
+    } else {
+      result = this.handlePass(player.id);
     }
-    this.handlePass(player.id);
+    console[result.success ? 'info' : 'error']('[turn timeout]', {
+      roomId: this.id, playerId: player.id, expiredDeadline,
+      success: result.success, error: result.error,
+      nextPlayerIndex: this.state.currentPlayerIndex,
+    });
   }
 
   private executePreparedPlay(): boolean {

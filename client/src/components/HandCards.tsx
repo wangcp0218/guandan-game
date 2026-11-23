@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Card, Rank, Suit } from '../sharedTypes';
+import { Card, CardPattern, Rank, Suit } from '../sharedTypes';
 import CardComponent from './CardComponent';
 
 interface Props {
@@ -22,7 +22,7 @@ const LONG_PRESS_MS = 450;
 const LONG_PRESS_SLOP_PX = 10;
 const SUPPRESS_CLICK_MS = 600;
 
-export default function HandCards({ cards, selectedIds, onToggle, onToggleStack, currentLevel, groupBySuit = false }: Props) {
+export default function HandCards({ cards, selectedIds, onToggle, onToggleStack, currentLevel, groupBySuit = false, arrangedGroups }: Props) {
   // Touch long-press selects the whole stack; desktop keeps right-click. Hooks
   // must run before the empty-hand early return below.
   const longPress = useRef<{
@@ -133,13 +133,7 @@ export default function HandCards({ cards, selectedIds, onToggle, onToggleStack,
 
   return (
     <div
-      className={`hand-cards${arrangedGroups ? ' is-arranged' : ''}${dragging ? ' is-dragging' : ''}`}
-      onPointerDown={startGesture}
-      onPointerMove={moveGesture}
-      onPointerUp={event => { moveGesture(event); finishGesture(event); }}
-      onPointerCancel={finishGesture}
-      onLostPointerCapture={finishGesture}
-      onClickCapture={event => { if (suppressPointerClick.current && event.detail > 0) { event.preventDefault(); event.stopPropagation(); suppressPointerClick.current = false; } }}
+      className={`hand-cards${arrangedGroups ? ' is-arranged' : ''}`}
       style={{
         height: stackHeight,
         '--hand-group-count': groups.length,
