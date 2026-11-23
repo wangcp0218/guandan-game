@@ -17,6 +17,9 @@ const MAX_PLAYERS = 4;
 const PLAYER_ACTION_TIMEOUT = 90000;
 const TURN_TIMEOUT = PLAYER_ACTION_TIMEOUT;
 const RETURN_TRIBUTE_TIMEOUT = PLAYER_ACTION_TIMEOUT;
+// Keep a disconnected player's waiting-room seat reserved briefly so a flaky
+// network reconnect restores the same seat instead of reshuffling teams.
+const WAITING_DISCONNECT_GRACE = 60000;
 
 export class GameRoom {
   id: string;
@@ -38,6 +41,7 @@ export class GameRoom {
   teamLevels: [Rank, Rank] = [Rank.Two, Rank.Two];
   leadingTeam: 0 | 1 = 0;
   private reportedCounts = new Map<string, number>();
+  private waitingGraceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   competition = { maxRounds: 0, maxMinutes: 0, tripleDoublePenalty: false };
   private matchStartedAt = 0;
   private consecutiveDoubles: [number, number] = [0, 0];
@@ -68,6 +72,16 @@ export class GameRoom {
       existing.level = level;
       existing.socket = socket;
       existing.isAI = isAI;
+      // Reconnected: cancel any pending waiting-room seat release.
+      const graceTimer = this.waitingGraceTimers.get(id);
+      if (graceTimer) {
+        clearTimeout(graceTimer);
+        this.waitingGraceTimers.delete(id);
+      }
+      if (this.state) {
+        const statePlayer = this.state.players.find(p => p.id === id);
+        if (statePlayer) statePlayer.isOnline = true;
+      }
       if (!this.state || this.state.phase === GamePhase.Waiting) {
         this.syncWaitingState();
       }
@@ -92,6 +106,10 @@ export class GameRoom {
     if (!isWaiting) {
       // Seats, teams and finish rankings must remain stable throughout a match.
       player.socket = null;
+      if (this.state) {
+        const statePlayer = this.state.players.find(p => p.id === id);
+        if (statePlayer) statePlayer.isOnline = false;
+      }
       return true;
     }
     this.players = this.players.filter(p => p.id !== id);
@@ -104,6 +122,45 @@ export class GameRoom {
       this.syncWaitingState();
     }
     return true;
+  }
+
+  /**
+   * Handle a connection loss (not an explicit leave). During an active game the
+   * seat is kept with `socket = null` so the match can be resumed. In the
+   * waiting room the seat is reserved for a short grace period, then released.
+   */
+  markPlayerOffline(id: string, expectedSocket?: any): boolean {
+    const player = this.players.find(p => p.id === id);
+    // An old connection may disconnect after the player has reconnected.
+    if (!player || (expectedSocket && player.socket !== expectedSocket)) return false;
+    player.socket = null;
+    if (this.state) {
+      const statePlayer = this.state.players.find(p => p.id === id);
+      if (statePlayer) statePlayer.isOnline = false;
+    }
+    const waiting = !this.state || this.state.phase === GamePhase.Waiting;
+    if (waiting) {
+      const existingTimer = this.waitingGraceTimers.get(id);
+      if (existingTimer) clearTimeout(existingTimer);
+      this.waitingGraceTimers.set(id, setTimeout(() => this.dropWaitingPlayer(id), WAITING_DISCONNECT_GRACE));
+      this.syncWaitingState();
+    } else {
+      this.broadcastState();
+    }
+    return true;
+  }
+
+  private dropWaitingPlayer(id: string) {
+    this.waitingGraceTimers.delete(id);
+    const player = this.players.find(p => p.id === id);
+    if (!player || player.socket) return; // reconnected in the meantime
+    this.players = this.players.filter(p => p.id !== id);
+    const seatIndex = this.seatAssignments.indexOf(id);
+    if (seatIndex >= 0) this.seatAssignments[seatIndex] = null;
+    if (this.ownerId === id) {
+      this.ownerId = this.players.find(p => !p.isAI)?.id || '';
+    }
+    this.syncWaitingState();
   }
 
   getConnectedHumanCount(): number {
@@ -167,6 +224,8 @@ export class GameRoom {
     this.roundReplay = [];
 
     this.reportedCounts.clear();
+    for (const timer of this.waitingGraceTimers.values()) clearTimeout(timer);
+    this.waitingGraceTimers.clear();
     if (this.turnTimer) {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
@@ -313,7 +372,7 @@ export class GameRoom {
         cardCount: this.hands.get(p.id)?.length || 0,
         isAI: p.isAI,
         isReady: p.isAI,
-        isOnline: true,
+        isOnline: p.isAI || !!p.socket,
       })),
       currentPlayerIndex: 0,
       actionDeadline: null,
@@ -359,7 +418,7 @@ export class GameRoom {
         cardCount: this.hands.get(p.id)?.length || 0,
         isAI: p.isAI,
         isReady: p.isAI,
-        isOnline: true,
+        isOnline: p.isAI || !!p.socket,
       })),
       currentPlayerIndex: 0,
       actionDeadline: null,
@@ -1136,6 +1195,7 @@ export class GameRoom {
       aiCount: this.players.filter(p => p.isAI).length,
       aiProvider: this.aiModelSelection.provider,
       aiModel: this.aiModelSelection.model,
+      playerIds: this.players.filter(p => !p.isAI).map(p => p.id),
     };
   }
 

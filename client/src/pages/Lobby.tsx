@@ -38,7 +38,7 @@ export default function Lobby() {
   const [modelsError, setModelsError] = useState('');
   const modelRequestId = useRef(0);
   const navigate = useNavigate();
-  const { username, isLoggedIn, token, logout } = useAuthStore();
+  const { username, userId, isLoggedIn, token, logout } = useAuthStore();
   const { reset } = useGameStore();
 
   useEffect(() => {
@@ -308,7 +308,7 @@ export default function Lobby() {
                   <span style={styles.roomMeta}>
                     {room.hasPassword ? '🔒 ' : ''}等级{room.level} | {room.playerCount}人/{room.maxPlayers}人 | {room.phase === GamePhase.Waiting ? '开局自动补 AI' : room.aiCount > 0 ? `AIx${room.aiCount}` : '全真人'} | {PROVIDER_LABELS[room.aiProvider]}/{room.aiModel}
                   </span>
-                  {room.phase !== GamePhase.Waiting && (
+                  {room.phase !== GamePhase.Waiting && !(userId && room.playerIds?.includes(userId)) && (
                     <button
                       type="button"
                       className="room-code-watch"
@@ -325,7 +325,16 @@ export default function Lobby() {
                     </button>
                   )}
                 </div>
-                {room.phase === GamePhase.Waiting && room.playerCount < room.maxPlayers && (
+                {userId && room.playerIds?.includes(userId) && (
+                  <button
+                    className="btn-primary"
+                    style={{ padding: '6px 16px', fontSize: 12 }}
+                    onClick={() => joinRoom(room.id)}
+                  >
+                    {room.phase === GamePhase.Waiting ? '返回房间' : '返回牌局'}
+                  </button>
+                )}
+                {room.phase === GamePhase.Waiting && room.playerCount < room.maxPlayers && !(userId && room.playerIds?.includes(userId)) && (
                   <button
                     className="btn-primary"
                     style={{ padding: '6px 16px', fontSize: 12 }}
@@ -341,7 +350,7 @@ export default function Lobby() {
                     加入
                   </button>
                 )}
-                {room.phase === GamePhase.Waiting && room.playerCount >= room.maxPlayers && (
+                {room.phase === GamePhase.Waiting && room.playerCount >= room.maxPlayers && !(userId && room.playerIds?.includes(userId)) && (
                   <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>等待房主开局</span>
                 )}
               </div>

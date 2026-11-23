@@ -1,6 +1,25 @@
 import { create } from 'zustand';
 import { GameState, RoomInfo, ChatMessage, RoundResult, Card, GamePhase } from '../sharedTypes';
 
+function readStoredAuth(): { userId: string; username: string; token: string; level: number } | null {
+  try {
+    const raw = localStorage.getItem('oowsp.auth');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.token && parsed.userId && parsed.username) {
+      return {
+        userId: parsed.userId,
+        username: parsed.username,
+        token: parsed.token,
+        level: typeof parsed.level === 'number' ? parsed.level : 2,
+      };
+    }
+  } catch {}
+  return null;
+}
+
+const storedAuth = readStoredAuth();
+
 interface AuthState {
   userId: string | null;
   username: string | null;
@@ -12,14 +31,24 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  userId: null,
-  username: null,
-  token: null,
-  level: 2,
-  isLoggedIn: false,
-  setAuth: (userId, username, token, level) =>
-    set({ userId, username, token, level, isLoggedIn: true }),
-  logout: () => set({ userId: null, username: null, token: null, level: 2, isLoggedIn: false }),
+  userId: storedAuth?.userId ?? null,
+  username: storedAuth?.username ?? null,
+  token: storedAuth?.token ?? null,
+  level: storedAuth?.level ?? 2,
+  isLoggedIn: !!storedAuth?.token,
+  setAuth: (userId, username, token, level) => {
+    try {
+      localStorage.setItem('oowsp.auth', JSON.stringify({ userId, username, token, level }));
+    } catch {}
+    set({ userId, username, token, level, isLoggedIn: true });
+  },
+  logout: () => {
+    try {
+      localStorage.removeItem('oowsp.auth');
+      localStorage.removeItem('oowsp.activeRoom');
+    } catch {}
+    set({ userId: null, username: null, token: null, level: 2, isLoggedIn: false });
+  },
 }));
 
 interface GameStore {

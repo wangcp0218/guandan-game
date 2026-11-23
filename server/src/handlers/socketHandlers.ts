@@ -6,10 +6,44 @@ import { RoomManager } from '../services/RoomManager';
 import { GameRoom } from '../services/GameRoom';
 import { createUser, findUserByUsername, findUserById, saveGameRecord } from '../db/database';
 import { fetchAvailableAiModels, normalizeAiSelection } from '../engine/llmAi';
-import type { AiProvider } from '../../../shared/types';
+import { GamePhase, type AiProvider } from '../../../shared/types';
 
 const JWT_SECRET = 'oowsp-game-server-secret-2024';
 const roomManager = new RoomManager();
+
+// Keep a room alive for a while after every human drops, so a brief network
+// outage does not destroy an in-progress match.
+const WAITING_ROOM_REAP_DELAY = 60000;
+const PLAYING_ROOM_REAP_DELAY = 180000;
+const roomReapTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+function cancelRoomReap(roomId: string) {
+  const timer = roomReapTimers.get(roomId);
+  if (timer) {
+    clearTimeout(timer);
+    roomReapTimers.delete(roomId);
+  }
+}
+
+function scheduleRoomReap(io: Server, roomId: string, delay: number) {
+  cancelRoomReap(roomId);
+  const timer = setTimeout(() => {
+    roomReapTimers.delete(roomId);
+    const room = roomManager.getRoom(roomId);
+    if (!room) return;
+    if (room.getConnectedHumanCount() > 0) return; // someone came back
+    for (const spectatorSocket of room.removeAllSpectators()) {
+      spectatorSocket.leave(roomId);
+      spectatorSocket.currentRoomId = undefined;
+      try { spectatorSocket.emit('spectator_removed'); } catch {}
+    }
+    room.clearPlayers();
+    roomManager.removeRoom(roomId);
+    io.emit('room_list', roomManager.getRoomList());
+    console.log(`[room] reaped empty room ${roomId} after ${Math.round(delay / 1000)}s grace`);
+  }, delay);
+  roomReapTimers.set(roomId, timer);
+}
 
 interface AuthSocket extends Socket {
   userId?: string;
@@ -131,18 +165,20 @@ export function setupSocketHandlers(io: Server) {
           }
           const user = findUserById(socket.userId);
           const idx = currentRoom.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
+          cancelRoomReap(currentRoom.id);
           socket.emit('room_joined', { room: currentRoom.toRoomInfo(), seatIndex: idx });
-          if (!currentRoom.state || currentRoom.state.phase === 'waiting') {
+          if (!currentRoom.state || currentRoom.state.phase === GamePhase.Waiting) {
             currentRoom.syncWaitingState();
           } else {
             currentRoom.broadcastState();
+            socket.emit('your_cards', currentRoom.getHand(socket.userId));
           }
         }
         return;
       }
 
       if (socket.currentRoomId) {
-        handleLeaveRoom(socket, io);
+        handleLeaveRoom(socket, io, false);
       }
 
       const room = roomManager.getRoom(data.roomId);
@@ -150,13 +186,17 @@ export function setupSocketHandlers(io: Server) {
         socket.emit('error', { message: '房间不存在' });
         return;
       }
-      if (room.password && room.password !== (data.password || '')) {
+
+      // Reconnecting players already authenticated into this room, so the room
+      // password must not block them from resuming their seat.
+      const alreadyInRoom = room.hasPlayer(socket.userId);
+      if (!alreadyInRoom && room.password && room.password !== (data.password || '')) {
         socket.emit('error', { message: '房间密码错误' });
         return;
       }
 
+      const wasWaiting = !room.state || room.state.phase === GamePhase.Waiting;
       const user = findUserById(socket.userId);
-      const alreadyInRoom = room.hasPlayer(socket.userId);
       const idx = room.addPlayer(socket.userId, socket.username || 'Player', user?.level || 2, socket);
       if (idx < 0) {
         socket.emit('error', { message: '房间已满' });
@@ -165,9 +205,10 @@ export function setupSocketHandlers(io: Server) {
 
       socket.join(room.id);
       socket.currentRoomId = room.id;
+      cancelRoomReap(room.id);
 
       socket.emit('room_joined', { room: room.toRoomInfo(), seatIndex: idx });
-      if (!alreadyInRoom && (!room.state || room.state.phase === 'waiting')) {
+      if (!alreadyInRoom && wasWaiting) {
         io.to(room.id).emit('player_joined', {
           playerId: socket.userId,
           playerName: socket.username,
@@ -175,8 +216,20 @@ export function setupSocketHandlers(io: Server) {
         });
       }
 
-      // Keep the room in the seating phase until the host explicitly starts.
-      room.syncWaitingState();
+      if (wasWaiting) {
+        // Keep the room in the seating phase until the host explicitly starts.
+        room.syncWaitingState();
+      } else {
+        // Resume an in-progress game without resetting phase, hands or turn.
+        room.broadcastState();
+        socket.emit('your_cards', room.getHand(socket.userId));
+        io.to(room.id).emit('player_rejoined', {
+          playerId: socket.userId,
+          playerName: socket.username,
+          seatIndex: idx,
+        });
+      }
+      console.log(`[room] ${alreadyInRoom ? 'resume' : 'join'} room=${room.id} user=${socket.userId} seat=${idx} phase=${room.state?.phase}`);
     });
 
     socket.on('join_spectator', (data: { roomId: string; password?: string }) => {
@@ -318,45 +371,54 @@ export function setupSocketHandlers(io: Server) {
 
 
     socket.on('disconnect', () => {
-      handleLeaveRoom(socket, io);
+      handleLeaveRoom(socket, io, true);
       console.log(`Client disconnected: ${socket.id}`);
     });
   });
 }
 
-function handleLeaveRoom(socket: AuthSocket, io: Server) {
+function handleLeaveRoom(socket: AuthSocket, io: Server, transient = false) {
   if (!socket.userId || !socket.currentRoomId) return;
+  const roomId = socket.currentRoomId;
+  const room = roomManager.getRoom(roomId);
+  if (!room) {
+    socket.currentRoomId = undefined;
+    return;
+  }
 
-  const room = roomManager.getRoom(socket.currentRoomId);
-  if (room) {
-    if (room.hasSpectator(socket.userId)) {
-      room.removeSpectator(socket.userId);
-      socket.leave(socket.currentRoomId);
-      io.emit('room_list', roomManager.getRoomList());
-      socket.currentRoomId = undefined;
-      return;
-    }
-    if (!room.removePlayer(socket.userId, socket)) {
-      socket.leave(socket.currentRoomId);
-      socket.currentRoomId = undefined;
-      return;
-    }
-    socket.leave(socket.currentRoomId);
-    io.to(socket.currentRoomId).emit('player_left', {
+  if (room.hasSpectator(socket.userId)) {
+    room.removeSpectator(socket.userId);
+    socket.leave(roomId);
+    socket.currentRoomId = undefined;
+    io.emit('room_list', roomManager.getRoomList());
+    return;
+  }
+
+  // A transient disconnect keeps the seat (with a grace period) so the player
+  // can resume; an explicit leave frees the waiting seat immediately.
+  const ok = transient
+    ? room.markPlayerOffline(socket.userId, socket)
+    : room.removePlayer(socket.userId, socket);
+  socket.leave(roomId);
+  socket.currentRoomId = undefined;
+  if (!ok) return;
+
+  if (!transient) {
+    io.to(roomId).emit('player_left', {
       playerId: socket.userId,
       playerName: socket.username,
     });
-
-    if (room.getConnectedHumanCount() === 0) {
-      for (const spectatorSocket of room.removeAllSpectators()) {
-        spectatorSocket.leave(socket.currentRoomId);
-        spectatorSocket.currentRoomId = undefined;
-        spectatorSocket.emit('spectator_removed');
-      }
-      room.clearPlayers();
-      roomManager.removeRoom(socket.currentRoomId);
+    if (room.state && room.state.phase !== GamePhase.Waiting) {
+      room.broadcastState();
     }
-    io.emit('room_list', roomManager.getRoomList());
   }
-  socket.currentRoomId = undefined;
+
+  if (room.getConnectedHumanCount() === 0) {
+    const waiting = !room.state || room.state.phase === GamePhase.Waiting;
+    scheduleRoomReap(io, roomId, waiting ? WAITING_ROOM_REAP_DELAY : PLAYING_ROOM_REAP_DELAY);
+    console.log(`[room] no humans online room=${roomId} phase=${room.state?.phase} reason=${transient ? 'disconnect' : 'leave'}; reap scheduled`);
+  } else {
+    cancelRoomReap(roomId);
+  }
+  io.emit('room_list', roomManager.getRoomList());
 }

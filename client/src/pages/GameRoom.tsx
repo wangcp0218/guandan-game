@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore, useGameStore } from '../stores/gameStore';
 import { getSocket } from '../hooks/useSocket';
+import { readToken, saveActiveRoom, clearActiveRoom } from '../utils/session';
 import { GameState, GamePhase, Card, CardPattern, PlayerInfo as PlayerInfoType, RoundResult, SpectatorHands } from '../sharedTypes';
 import HandCards from '../components/HandCards';
 import PlayerInfoComponent from '../components/PlayerInfo';
@@ -176,6 +177,13 @@ export default function GameRoom() {
     const onError = (data: { message: string }) => {
       setErrorMsg(data.message);
       setTimeout(() => setErrorMsg(''), 3000);
+      // If the room we tried to resume no longer exists, do not leave the player
+      // stuck on a dead screen.
+      if (data.message === '房间不存在' || (!spectatorMode && data.message === '房间已满')) {
+        clearActiveRoom();
+        reset();
+        navigate('/lobby');
+      }
     };
     socket.on('error', onError);
 
@@ -198,8 +206,24 @@ export default function GameRoom() {
     };
     socket.on('spectator_removed', onSpectatorRemoved);
 
-    // Subscribe before requesting the snapshot, including on spectator entry.
-    socket.emit(spectatorMode ? 'join_spectator' : 'join_room', { roomId });
+    const onRoomJoined = (data: { room?: any; seatIndex?: number }) => {
+      if (typeof data?.seatIndex === 'number' && data.seatIndex >= 0) {
+        setMySeatIndex(data.seatIndex);
+      }
+      if (roomId) saveActiveRoom({ roomId, spectator: spectatorMode });
+    };
+    socket.on('room_joined', onRoomJoined);
+
+    // Re-authenticate and re-join on every (re)connect so a network drop resumes
+    // the same seat and match instead of leaving the player stranded.
+    const requestJoin = () => {
+      const token = readToken();
+      if (token) socket.emit('auth_token', { token });
+      socket.emit(spectatorMode ? 'join_spectator' : 'join_room', { roomId });
+    };
+    if (roomId) saveActiveRoom({ roomId, spectator: spectatorMode });
+    if (socket.connected) requestJoin();
+    socket.on('connect', requestJoin);
 
     return () => {
       socket.off('game_state', onGameState);
@@ -216,6 +240,8 @@ export default function GameRoom() {
       socket.off('player_joined', onPlayerJoined);
       socket.off('hint_result', onHintResult);
       socket.off('spectator_removed', onSpectatorRemoved);
+      socket.off('room_joined', onRoomJoined);
+      socket.off('connect', requestJoin);
     };
   }, [roomId, spectatorMode]);
 
@@ -272,12 +298,14 @@ export default function GameRoom() {
 
   const handleLeaveRoom = () => {
     getSocket()?.emit('leave_room');
+    clearActiveRoom();
     reset();
     navigate('/lobby');
   };
 
   const handleLogout = () => {
     getSocket()?.emit('leave_room');
+    clearActiveRoom();
     reset();
     logout();
     navigate('/');

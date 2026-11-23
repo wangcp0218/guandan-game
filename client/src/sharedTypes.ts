@@ -115,6 +115,8 @@ export interface RoomInfo {
   aiCount: number;
   aiProvider: AiProvider;
   aiModel: string;
+  /** Human player ids currently seated (including temporarily offline ones). */
+  playerIds: string[];
 }
 
 export interface GameState {
