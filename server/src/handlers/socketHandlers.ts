@@ -107,7 +107,7 @@ export function setupSocketHandlers(io: Server) {
     });
 
     socket.on('get_ai_models', async (data: { provider?: AiProvider; requestId?: number }) => {
-      const provider: AiProvider = data.provider === 'local' ? 'local' : 'hwcloud';
+      const provider = normalizeAiSelection(data.provider, undefined).provider;
       if (!socket.userId) {
         socket.emit('ai_models_result', {
           provider,
@@ -330,7 +330,7 @@ export function setupSocketHandlers(io: Server) {
       if (!socket.userId || !socket.currentRoomId) return;
       const room = roomManager.getRoom(socket.currentRoomId);
       if (!room) return;
-      const result = room.playCards(socket.userId, data.cards, data.declaration);
+      const result = room.playCards(socket.userId, data?.cards, data?.declaration);
       if (!result.success) {
         socket.emit('error', { message: result.error });
       }
@@ -340,7 +340,7 @@ export function setupSocketHandlers(io: Server) {
       if (!socket.userId || !socket.currentRoomId) return;
       const room = roomManager.getRoom(socket.currentRoomId);
       if (!room) return;
-      const result = room.playCards(socket.userId, []);
+      const result = room.handlePass(socket.userId);
       if (!result.success) {
         socket.emit('error', { message: result.error });
       }

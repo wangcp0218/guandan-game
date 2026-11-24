@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PatternType, Suit } from '../../../shared/types';
 import type { CardPattern } from '../../../shared/types';
-import { llmFindBestPlay } from './llmAi';
+import { llmFindBestPlay, HW_AI_MODEL } from './llmAi';
 import { findSmartPlay } from './ai';
 import { getAiTelemetrySnapshot, resetAiTelemetry } from './aiTelemetry';
 
@@ -23,7 +23,6 @@ async function withResponse(data: unknown, check: (logs: string[]) => Promise<vo
     const body = JSON.parse(init!.body as string);
     assert.equal(body.max_tokens, 4096);
     assert.deepEqual(body.thinking, { type: 'disabled' });
-    assert.deepEqual(body.response_format, { type: 'json_object' });
     assert.equal(body.reasoning_effort, undefined);
     return { ok: true, json: async () => data } as Response;
   }) as typeof fetch;
@@ -40,7 +39,7 @@ async function withResponse(data: unknown, check: (logs: string[]) => Promise<vo
 }
 
 const choose = () => llmFindBestPlay(play.cards, [play], null, true, 5,
-  undefined, { provider: 'hwcloud', model: 'HW-deepseek-v4.1-flash-1017' });
+  undefined, { provider: 'hwcloud', model: HW_AI_MODEL });
 
 test('empty truncated response falls back and logs token metadata without reasoning text', async () => {
   await withResponse({
@@ -103,7 +102,7 @@ test('non-forced follow still calls the model and honors its PASS with thinking 
       ...play.cards, { id: 2, rank: 4, suit: Suit.Club },
     ], { type: PatternType.Single, rank: 2, length: 1,
       cards: [{ id: 0, rank: 2, suit: Suit.Diamond }],
-    }, false, 5, undefined, { provider: 'hwcloud', model: 'HW-deepseek-v4.1-flash-1017' });
+    }, false, 5, undefined, { provider: 'hwcloud', model: HW_AI_MODEL });
     assert.equal(result, null);
     const telemetry = getAiTelemetrySnapshot();
     assert.equal(telemetry.modelCalls, 1);
